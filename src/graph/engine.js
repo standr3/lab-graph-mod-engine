@@ -22,6 +22,7 @@ import {
   resolveNodeStance,
 } from "./selectors";
 import { planLinkVoteCascade } from "./planners";
+import { revalidateGraph } from "./revalidateGraph";
 
 function updateEntityVote(entity, userId, nextVote) {
   const nextVotesByUser = { ...entity.votesByUser };
@@ -453,11 +454,12 @@ export function applyAction(state, action) {
     }
 
     const nextState = applyPlan(state, plan);
+    const validatedState = revalidateGraph(nextState);
 
     return {
       allowed: true,
-      nextState,
-      logMessage: `Link ${link.id} vote cascade applied`,
+      nextState: validatedState,
+      logMessage: "action applied and graph revalidated",
     };
   }
 

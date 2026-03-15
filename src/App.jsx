@@ -6,6 +6,10 @@ import {
   getLinkCanonicalStatus,
   getLinkCreationMode,
   getLinkCreationReason,
+  getLinkDeleteMode,
+  getLinkDeleteReason,
+  getLinkDownActionMode,
+  getLinkUpActionMode,
   getLinkVoteControlsMode,
   getLinkVoteForUser,
   getNodeById,
@@ -15,12 +19,14 @@ import {
   getVoteControlsMode,
   isLinkAuthoritativeByOrigin,
   isNodeAuthoritativeByOrigin,
+  isNodeReviewLockedByReviewedUserLink,
 } from "./graph/selectors";
 import { VOTE_DOWN, VOTE_UP } from "./graph/constants";
 
 function LinkBlock({
   link,
   nodes,
+  links,
   userId,
   deleteLink,
   toggleLinkUp,
@@ -31,9 +37,13 @@ function LinkBlock({
 
   const linkMyVote = getLinkVoteForUser(link, userId);
   const linkVoteControlsMode = getLinkVoteControlsMode(link, userId);
+  const linkUpActionMode = getLinkUpActionMode(link, userId, nodes);
+  const linkDownActionMode = getLinkDownActionMode(link, userId, nodes);
   const linkAuthoritativeByOrigin = isLinkAuthoritativeByOrigin(link);
   const linkCanonicalStatus = getLinkCanonicalStatus(link);
   const isOwnLink = link.creatorId === userId;
+  const linkDeleteMode = getLinkDeleteMode(link, userId);
+  const linkDeleteReason = getLinkDeleteReason(link, userId);
 
   return (
     <div
@@ -94,7 +104,10 @@ function LinkBlock({
         >
           <button
             onClick={() => toggleLinkUp(userId, link.id)}
-            disabled={linkVoteControlsMode === "disabled"}
+            disabled={
+              linkVoteControlsMode === "disabled" ||
+              linkUpActionMode === "disabled"
+            }
             style={{ fontWeight: linkMyVote === VOTE_UP ? "bold" : "normal" }}
           >
             up
@@ -102,7 +115,10 @@ function LinkBlock({
 
           <button
             onClick={() => toggleLinkDown(userId, link.id)}
-            disabled={linkVoteControlsMode === "disabled"}
+            disabled={
+              linkVoteControlsMode === "disabled" ||
+              linkDownActionMode === "disabled"
+            }
             style={{ fontWeight: linkMyVote === VOTE_DOWN ? "bold" : "normal" }}
           >
             down
@@ -132,8 +148,17 @@ function LinkBlock({
       </div>
 
       {isOwnLink ? (
-        <div style={{ marginTop: 8 }}>
-          <button onClick={() => deleteLink(userId, link.id)}>Delete link</button>
+        <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
+          <button
+            onClick={() => deleteLink(userId, link.id)}
+            disabled={linkDeleteMode === "disabled"}
+          >
+            Delete link
+          </button>
+
+          <span style={{ fontSize: 12, color: "#666" }}>
+            {linkDeleteReason}
+          </span>
         </div>
       ) : null}
     </div>
@@ -198,7 +223,7 @@ function UserView({ userId, title }) {
       <div style={{ display: "grid", gap: 10 }}>
         {nodes.map((node) => {
           const myVote = getNodeVoteForUser(node, userId);
-          const voteControlsMode = getVoteControlsMode(node, userId);
+          const voteControlsMode = getVoteControlsMode(node, userId, links);
           const authoritativeByOrigin = isNodeAuthoritativeByOrigin(node);
           const canonicalStatus = getNodeCanonicalStatus(node);
           const isOwnNode = node.creatorId === userId;
@@ -219,6 +244,12 @@ function UserView({ userId, title }) {
           const linkReason = getLinkCreationReason(
             node,
             selectedTargetNode,
+            userId
+          );
+
+          const nodeLockedByReviewedLink = isNodeReviewLockedByReviewedUserLink(
+            node.id,
+            links,
             userId
           );
 
@@ -280,6 +311,8 @@ function UserView({ userId, title }) {
                     : "canonical falsehood decided by owner • voting locked"
                   : isOwnNode
                   ? "own node: you cannot vote on it"
+                  : nodeLockedByReviewedLink
+                  ? "review locked: one of your guest-created links on this node has external reviews"
                   : "community node"}
               </div>
 
@@ -343,6 +376,7 @@ function UserView({ userId, title }) {
                       key={link.id}
                       link={link}
                       nodes={nodes}
+                      links={links}
                       userId={userId}
                       deleteLink={deleteLink}
                       toggleLinkUp={toggleLinkUp}

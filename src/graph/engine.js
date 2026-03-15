@@ -15,7 +15,13 @@ import {
 import { makeLink, makeNode } from "./seed";
 import { canVoteLink, canVoteNode } from "./guards";
 import { transitionVote } from "./voteStateMachine";
-import { canAddLink, getNodeById, resolveNodeStance } from "./selectors";
+import {
+  canAddLink,
+  getNodeById,
+  isGuestLinkCreatorReviewLockedByForeignReviews,
+  planLinkVoteCascade,
+  resolveNodeStance,
+} from "./selectors";
 
 function updateEntityVote(entity, userId, nextVote) {
   const nextVotesByUser = { ...entity.votesByUser };
@@ -134,6 +140,17 @@ function planLinkRevalidationCascade({
   };
 }
 
+function applyEndpointCascadeChanges(nodes, userId, plan, nodeId) {
+  if (!plan || plan.action === "noop" || !plan.nextVote) {
+    return nodes;
+  }
+
+  return nodes.map((node) => {
+    if (node.id !== nodeId) return node;
+    return updateEntityVote(node, userId, plan.nextVote);
+  });
+}
+
 export function applyAction(state, action) {
   if (action.type === ACTION_ADD_NODE) {
     const newNode = makeNode(action.userId);
@@ -243,6 +260,14 @@ export function applyAction(state, action) {
       };
     }
 
+    if (isGuestLinkCreatorReviewLockedByForeignReviews(link, action.userId)) {
+      return {
+        allowed: false,
+        nextState: state,
+        logMessage: `Cannot delete link ${link.id}: guest-created link has foreign reviews and is delete-locked`,
+      };
+    }
+
     const nextLinks = state.links.filter((item) => item.id !== link.id);
 
     return {
@@ -297,7 +322,7 @@ export function applyAction(state, action) {
 
     const downEvent = isDownEvent({ currentVote, nextVote });
 
-    let nextLinks = state.links;
+    let intermediateLinks = state.links;
     let cascadeMessages = [];
 
     if (downEvent) {
@@ -307,24 +332,24 @@ export function applyAction(state, action) {
         links: state.links,
       });
 
-      nextLinks = propagationResult.nextLinks;
-      cascadeMessages = propagationResult.cascadeMessages;
-    } else {
-      const cascadePlan = planLinkRevalidationCascade({
-        updatedNode,
-        nodes: updatedNodes,
-        links: state.links,
-      });
-
-      nextLinks = state.links.filter(
-        (link) =>
-          !cascadePlan.linksToDelete.some(
-            (linkToDelete) => linkToDelete.id === link.id
-          )
-      );
-
-      cascadeMessages = cascadePlan.cascadeMessages;
+      intermediateLinks = propagationResult.nextLinks;
+      cascadeMessages.push(...propagationResult.cascadeMessages);
     }
+
+    const cascadePlan = planLinkRevalidationCascade({
+      updatedNode,
+      nodes: updatedNodes,
+      links: intermediateLinks,
+    });
+
+    const nextLinks = intermediateLinks.filter(
+      (link) =>
+        !cascadePlan.linksToDelete.some(
+          (linkToDelete) => linkToDelete.id === link.id
+        )
+    );
+
+    cascadeMessages.push(...cascadePlan.cascadeMessages);
 
     const logParts = [
       `User ${action.userId} changed vote on ${node.id} from ${currentVote} to ${nextVote}`,
@@ -369,6 +394,40 @@ export function applyAction(state, action) {
       };
     }
 
+    const direction =
+      action.type === ACTION_TOGGLE_LINK_UP ? "up" : "down";
+
+    const cascadePlan = planLinkVoteCascade(
+      link,
+      action.userId,
+      direction,
+      state.nodes
+    );
+
+    if (!cascadePlan.allowed) {
+      return {
+        allowed: false,
+        nextState: state,
+        logMessage: `Action denied for ${action.userId} on link ${link.id}: ${cascadePlan.reason}`,
+      };
+    }
+
+    let updatedNodes = state.nodes;
+
+    updatedNodes = applyEndpointCascadeChanges(
+      updatedNodes,
+      action.userId,
+      cascadePlan.sourcePlan,
+      link.sourceId
+    );
+
+    updatedNodes = applyEndpointCascadeChanges(
+      updatedNodes,
+      action.userId,
+      cascadePlan.targetPlan,
+      link.targetId
+    );
+
     const clickedVote =
       action.type === ACTION_TOGGLE_LINK_UP ? VOTE_UP : VOTE_DOWN;
 
@@ -380,13 +439,30 @@ export function applyAction(state, action) {
       return updateEntityVote(item, action.userId, nextVote);
     });
 
+    const logParts = [
+      `User ${action.userId} changed vote on link ${link.id} from ${currentVote} to ${nextVote}`,
+    ];
+
+    if (cascadePlan.sourcePlan?.action && cascadePlan.sourcePlan.action !== "noop") {
+      logParts.push(
+        `Cascade: source node ${link.sourceId} -> ${cascadePlan.sourcePlan.nextVote}`
+      );
+    }
+
+    if (cascadePlan.targetPlan?.action && cascadePlan.targetPlan.action !== "noop") {
+      logParts.push(
+        `Cascade: target node ${link.targetId} -> ${cascadePlan.targetPlan.nextVote}`
+      );
+    }
+
     return {
       allowed: true,
       nextState: {
         ...state,
+        nodes: updatedNodes,
         links: updatedLinks,
       },
-      logMessage: `User ${action.userId} changed vote on link ${link.id} from ${currentVote} to ${nextVote}`,
+      logMessage: logParts.join(" | "),
     };
   }
 

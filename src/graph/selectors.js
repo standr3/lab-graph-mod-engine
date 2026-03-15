@@ -115,60 +115,17 @@ export function canAddLink(sourceNode, targetNode, userId) {
   const targetAllowed =
     targetStance === "canonical_true" || targetStance === "local_true";
 
-  const result = sourceAllowed && targetAllowed;
-
-  console.log("[POLICY] canAddLink", {
-    sourceNodeId: sourceNode.id,
-    targetNodeId: targetNode.id,
-    userId,
-    sourceStance,
-    targetStance,
-    result,
-  });
-
-  return result;
+  return sourceAllowed && targetAllowed;
 }
 
 export function getLinkCreationMode(sourceNode, targetNode, userId) {
-  if (!sourceNode || !targetNode) {
-    const result = "disabled";
-
-    console.log("[POLICY] getLinkCreationMode", {
-      sourceNodeId: sourceNode?.id || null,
-      targetNodeId: targetNode?.id || null,
-      userId,
-      result,
-      reason: "missing_node",
-    });
-
-    return result;
-  }
-
-  const allowed = canAddLink(sourceNode, targetNode, userId);
-  const result = allowed ? "enabled" : "disabled";
-
-  console.log("[POLICY] getLinkCreationMode", {
-    sourceNodeId: sourceNode.id,
-    targetNodeId: targetNode.id,
-    userId,
-    result,
-  });
-
-  return result;
+  if (!sourceNode || !targetNode) return "disabled";
+  return canAddLink(sourceNode, targetNode, userId) ? "enabled" : "disabled";
 }
 
 export function getLinkCreationReason(sourceNode, targetNode, userId) {
   if (!sourceNode || !targetNode) {
-    const result = "link blocked: select a valid target node";
-
-    console.log("[POLICY] getLinkCreationReason", {
-      sourceNodeId: sourceNode?.id || null,
-      targetNodeId: targetNode?.id || null,
-      userId,
-      result,
-    });
-
-    return result;
+    return "link blocked: select a valid target node";
   }
 
   const sourceStance = resolveNodeStance(sourceNode, userId);
@@ -179,28 +136,43 @@ export function getLinkCreationReason(sourceNode, targetNode, userId) {
   const targetAllowed =
     targetStance === "canonical_true" || targetStance === "local_true";
 
-  let result = "link allowed";
-
   if (!sourceAllowed && !targetAllowed) {
-    result = "link blocked: endorse both source and target nodes first";
-  } else if (!sourceAllowed) {
-    result = "link blocked: endorse source node first";
-  } else if (!targetAllowed) {
-    result = "link blocked: endorse target node first";
-  } else {
-    result = "link allowed: you support both source and target nodes";
+    return "link blocked: endorse both source and target nodes first";
   }
 
-  console.log("[POLICY] getLinkCreationReason", {
-    sourceNodeId: sourceNode.id,
-    targetNodeId: targetNode.id,
-    userId,
-    sourceStance,
-    targetStance,
-    result,
-  });
+  if (!sourceAllowed) {
+    return "link blocked: endorse source node first";
+  }
 
-  return result;
+  if (!targetAllowed) {
+    return "link blocked: endorse target node first";
+  }
+
+  return "link allowed: you support both source and target nodes";
+}
+
+export function linkHasForeignReviews(link) {
+  return Object.entries(link.votesByUser).some(
+    ([reviewerId, vote]) => reviewerId !== link.creatorId && vote !== VOTE_NONE,
+  );
+}
+
+export function isGuestLinkCreatorReviewLockedByForeignReviews(link, userId) {
+  return (
+    link.creatorId === userId &&
+    link.creatorId !== "O" &&
+    linkHasForeignReviews(link)
+  );
+}
+
+export function isNodeReviewLockedByReviewedUserLink(nodeId, links, userId) {
+  return links.some(
+    (link) =>
+      link.creatorId === userId &&
+      link.creatorId !== "O" &&
+      linkHasForeignReviews(link) &&
+      (link.sourceId === nodeId || link.targetId === nodeId),
+  );
 }
 
 export function getEntityVoteControlsMode(entity, userId) {
@@ -210,8 +182,16 @@ export function getEntityVoteControlsMode(entity, userId) {
   return "enabled";
 }
 
-export function getVoteControlsMode(node, userId) {
-  return getEntityVoteControlsMode(node, userId);
+export function getVoteControlsMode(node, userId, links = []) {
+  const baseMode = getEntityVoteControlsMode(node, userId);
+
+  if (baseMode === "hidden") return "hidden";
+
+  if (isNodeReviewLockedByReviewedUserLink(node.id, links, userId)) {
+    return "disabled";
+  }
+
+  return baseMode;
 }
 
 export function getLinkVoteControlsMode(link, userId) {
@@ -221,4 +201,133 @@ export function getLinkVoteControlsMode(link, userId) {
   if (link.voteLocksByUser?.[userId]) return "disabled";
   if (userId !== "O" && isEntityCanonizedByOwner(link)) return "disabled";
   return "enabled";
+}
+
+export function getLinkDeleteMode(link, userId) {
+  if (link.creatorId !== userId) return "hidden";
+  if (isGuestLinkCreatorReviewLockedByForeignReviews(link, userId)) {
+    return "disabled";
+  }
+  return "enabled";
+}
+
+export function getLinkDeleteReason(link, userId) {
+  if (link.creatorId !== userId) return "";
+  if (isGuestLinkCreatorReviewLockedByForeignReviews(link, userId)) {
+    return "delete blocked: this guest link has reviews from other users";
+  }
+  return "delete allowed";
+}
+
+/**
+ * Endpoint planning for link vote cascade
+ */
+export function planEndpointTransition(node, userId, desiredDirection) {
+  const stance = resolveNodeStance(node, userId);
+
+  if (desiredDirection === "up") {
+    if (stance === "canonical_true" || stance === "local_true") {
+      return { allowed: true, action: "noop", nextVote: null, stance };
+    }
+
+    if (stance === "undecided") {
+      return {
+        allowed: true,
+        action: "set_up_local",
+        nextVote: VOTE_UP,
+        stance,
+      };
+    }
+
+    if (stance === "local_false") {
+      return {
+        allowed: true,
+        action: "flip_to_up_local",
+        nextVote: VOTE_UP,
+        stance,
+      };
+    }
+
+    return { allowed: false, action: "blocked", nextVote: null, stance };
+  }
+
+  if (desiredDirection === "down") {
+    if (stance === "canonical_false" || stance === "local_false") {
+      return { allowed: true, action: "noop", nextVote: null, stance };
+    }
+
+    if (stance === "undecided") {
+      return {
+        allowed: true,
+        action: "set_down_local",
+        nextVote: VOTE_DOWN,
+        stance,
+      };
+    }
+
+    if (stance === "local_true") {
+      return {
+        allowed: true,
+        action: "flip_to_down_local",
+        nextVote: VOTE_DOWN,
+        stance,
+      };
+    }
+
+    return { allowed: false, action: "blocked", nextVote: null, stance };
+  }
+
+  return { allowed: false, action: "blocked", nextVote: null, stance };
+}
+
+export function planLinkVoteCascade(link, userId, desiredDirection, nodes) {
+  const sourceNode = getNodeById(nodes, link.sourceId);
+  const targetNode = getNodeById(nodes, link.targetId);
+
+  if (!sourceNode || !targetNode) {
+    return {
+      allowed: false,
+      reason: "missing endpoint",
+      sourcePlan: null,
+      targetPlan: null,
+    };
+  }
+
+  const sourcePlan = planEndpointTransition(
+    sourceNode,
+    userId,
+    desiredDirection,
+  );
+  const targetPlan = planEndpointTransition(
+    targetNode,
+    userId,
+    desiredDirection,
+  );
+
+  const allowed = sourcePlan.allowed && targetPlan.allowed;
+
+  return {
+    allowed,
+    reason: allowed
+      ? ""
+      : `cannot cascade ${desiredDirection} to both endpoints`,
+    sourcePlan,
+    targetPlan,
+  };
+}
+
+export function getLinkUpActionMode(link, userId, nodes) {
+  const baseMode = getLinkVoteControlsMode(link, userId);
+  if (baseMode === "hidden" || baseMode === "disabled") return baseMode;
+
+  const plan = planLinkVoteCascade(link, userId, "up", nodes);
+  return plan.allowed ? "enabled" : "disabled";
+}
+
+export function getLinkDownActionMode(link, userId, nodes) {
+  const baseMode = getLinkVoteControlsMode(link, userId);
+  if (baseMode === "hidden" || baseMode === "disabled") return baseMode;
+
+  const plan = planLinkVoteCascade(link, userId, "down", nodes);
+  return plan.allowed ? "enabled" : "disabled";
 }

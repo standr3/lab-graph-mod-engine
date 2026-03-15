@@ -13,6 +13,8 @@ export const ACTION_ADD_REPLY = "ADD_REPLY";
 export const ACTION_DELETE_REPLY = "DELETE_REPLY";
 export const ACTION_TOGGLE_UP = "TOGGLE_UP";
 export const ACTION_TOGGLE_DOWN = "TOGGLE_DOWN";
+export const ACTION_TOGGLE_REPLY_UP = "ACTION_TOGGLE_REPLY_UP";
+export const ACTION_TOGGLE_REPLY_DOWN = "ACTION_TOGGLE_REPLY_DOWN";
 
 export const GOVERNANCE_AUTHORITATIVE = "authoritative";
 export const GOVERNANCE_COMMUNITY = "community";

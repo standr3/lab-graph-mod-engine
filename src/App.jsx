@@ -6,9 +6,13 @@ import {
   getNodeVoteForUser,
   getRepliesForNode,
   getReplyBlockReason,
+  getReplyCanonicalStatus,
   getReplyControlsMode,
+  getReplyVoteControlsMode,
+  getReplyVoteForUser,
   getVoteControlsMode,
   isNodeAuthoritativeByOrigin,
+  isReplyAuthoritativeByOrigin,
 } from "./graph/selectors";
 import { VOTE_DOWN, VOTE_UP } from "./graph/constants";
 
@@ -20,6 +24,8 @@ function UserView({ userId, title }) {
   const deleteReply = useGraphStore((s) => s.deleteReply);
   const toggleUp = useGraphStore((s) => s.toggleUp);
   const toggleDown = useGraphStore((s) => s.toggleDown);
+  const toggleReplyUp = useGraphStore((s) => s.toggleReplyUp);
+  const toggleReplyDown = useGraphStore((s) => s.toggleReplyDown);
 
   return (
     <div
@@ -149,6 +155,10 @@ function UserView({ userId, title }) {
                 >
                   {nodeReplies.map((reply) => {
                     const isOwnReply = reply.creatorId === userId;
+                    const replyMyVote = getReplyVoteForUser(reply, userId);
+                    const replyVoteControlsMode = getReplyVoteControlsMode(reply, userId);
+                    const replyAuthoritativeByOrigin = isReplyAuthoritativeByOrigin(reply);
+                    const replyCanonicalStatus = getReplyCanonicalStatus(reply);
 
                     return (
                       <div
@@ -162,6 +172,63 @@ function UserView({ userId, title }) {
                       >
                         <div style={{ fontFamily: "monospace" }}>
                           {formatReplyText(reply)}
+                        </div>
+
+                        {replyVoteControlsMode !== "hidden" ? (
+                          <div
+                            style={{
+                              marginTop: 8,
+                              display: "flex",
+                              gap: 8,
+                              flexWrap: "wrap",
+                              alignItems: "center",
+                            }}
+                          >
+                            <button
+                              onClick={() => toggleReplyUp(userId, reply.id)}
+                              disabled={replyVoteControlsMode === "disabled"}
+                              style={{
+                                fontWeight:
+                                  replyMyVote === VOTE_UP ? "bold" : "normal",
+                              }}
+                            >
+                              up
+                            </button>
+
+                            <button
+                              onClick={() => toggleReplyDown(userId, reply.id)}
+                              disabled={replyVoteControlsMode === "disabled"}
+                              style={{
+                                fontWeight:
+                                  replyMyVote === VOTE_DOWN ? "bold" : "normal",
+                              }}
+                            >
+                              down
+                            </button>
+
+                            <span style={{ fontSize: 12, color: "#666" }}>
+                              last decision: {replyMyVote}
+                              {replyVoteControlsMode === "disabled"
+                                ? " • locked"
+                                : ""}
+                            </span>
+                          </div>
+                        ) : null}
+
+                        <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>
+                          {replyAuthoritativeByOrigin
+                            ? "authoritative reply by origin: voting unavailable"
+                            : replyCanonicalStatus === "canonical_true"
+                            ? userId === "O"
+                              ? "you marked this reply as canonical truth"
+                              : "canonical truth decided by owner • voting locked"
+                            : replyCanonicalStatus === "canonical_false"
+                            ? userId === "O"
+                              ? "you marked this reply as canonical falsehood"
+                              : "canonical falsehood decided by owner • voting locked"
+                            : isOwnReply
+                            ? "own reply: you cannot vote on it"
+                            : "community reply"}
                         </div>
 
                         {isOwnReply ? (

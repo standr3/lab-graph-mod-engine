@@ -3,6 +3,8 @@ import {
   ACTION_ADD_REPLY,
   ACTION_DELETE_REPLY,
   ACTION_TOGGLE_DOWN,
+  ACTION_TOGGLE_REPLY_DOWN,
+  ACTION_TOGGLE_REPLY_UP,
   ACTION_TOGGLE_UP,
   REPLY_SUPPORT_CANONICAL,
   REPLY_SUPPORT_LOCAL,
@@ -11,19 +13,19 @@ import {
   VOTE_UP,
 } from "./constants";
 import { makeNode, makeReply } from "./seed";
-import { canVoteNode } from "./guards";
+import { canVoteNode, canVoteReply } from "./guards";
 import { transitionVote } from "./voteStateMachine";
 import { canAddReply, resolveNodeStance } from "./selectors";
 
-function updateNodeVote(node, userId, nextVote) {
-  console.log("[ENGINE] updateNodeVote:start", {
-    nodeId: node.id,
+function updateEntityVote(entity, userId, nextVote) {
+  console.log("[ENGINE] updateEntityVote:start", {
+    entityId: entity.id,
     userId,
     nextVote,
-    beforeVotesByUser: node.votesByUser,
+    beforeVotesByUser: entity.votesByUser,
   });
 
-  const nextVotesByUser = { ...node.votesByUser };
+  const nextVotesByUser = { ...entity.votesByUser };
 
   if (nextVote === VOTE_NONE) {
     delete nextVotesByUser[userId];
@@ -31,17 +33,17 @@ function updateNodeVote(node, userId, nextVote) {
     nextVotesByUser[userId] = nextVote;
   }
 
-  const updatedNode = {
-    ...node,
+  const updatedEntity = {
+    ...entity,
     votesByUser: nextVotesByUser,
   };
 
-  console.log("[ENGINE] updateNodeVote:end", {
-    nodeId: node.id,
-    afterVotesByUser: updatedNode.votesByUser,
+  console.log("[ENGINE] updateEntityVote:end", {
+    entityId: entity.id,
+    afterVotesByUser: updatedEntity.votesByUser,
   });
 
-  return updatedNode;
+  return updatedEntity;
 }
 
 function resolveReplySupportType(node, userId) {
@@ -98,17 +100,10 @@ function planReplyRevalidationCascade({
     }
   }
 
-  const result = {
+  return {
     repliesToDelete,
     cascadeMessages,
   };
-
-  console.log("[ENGINE] planReplyRevalidationCascade:end", {
-    nodeId: updatedNode.id,
-    replyIdsToDelete: repliesToDelete.map((reply) => reply.id),
-  });
-
-  return result;
 }
 
 export function applyAction(state, action) {
@@ -120,7 +115,7 @@ export function applyAction(state, action) {
   if (action.type === ACTION_ADD_NODE) {
     const newNode = makeNode(action.userId);
 
-    const result = {
+    return {
       allowed: true,
       nextState: {
         ...state,
@@ -128,29 +123,23 @@ export function applyAction(state, action) {
       },
       logMessage: `User ${action.userId} added node ${newNode.id}`,
     };
-
-    console.log("[ENGINE] applyAction:addNode:success", result);
-    return result;
   }
 
   if (action.type === ACTION_ADD_REPLY) {
     const parentNode = state.nodes.find((node) => node.id === action.nodeId);
 
     if (!parentNode) {
-      const result = {
+      return {
         allowed: false,
         nextState: state,
         logMessage: `Cannot add reply: node ${action.nodeId} not found`,
       };
-
-      console.log("[ENGINE] applyAction:addReply:nodeNotFound", result);
-      return result;
     }
 
     const supportType = resolveReplySupportType(parentNode, action.userId);
     const newReply = makeReply(action.nodeId, action.userId, supportType);
 
-    const result = {
+    return {
       allowed: true,
       nextState: {
         ...state,
@@ -158,39 +147,30 @@ export function applyAction(state, action) {
       },
       logMessage: `User ${action.userId} added reply ${newReply.id} to node ${action.nodeId} with support ${supportType}`,
     };
-
-    console.log("[ENGINE] applyAction:addReply:success", result);
-    return result;
   }
 
   if (action.type === ACTION_DELETE_REPLY) {
     const reply = state.replies.find((item) => item.id === action.replyId);
 
     if (!reply) {
-      const result = {
+      return {
         allowed: false,
         nextState: state,
         logMessage: `Reply ${action.replyId} not found`,
       };
-
-      console.log("[ENGINE] applyAction:deleteReply:notFound", result);
-      return result;
     }
 
     if (reply.creatorId !== action.userId) {
-      const result = {
+      return {
         allowed: false,
         nextState: state,
         logMessage: `User ${action.userId} cannot delete reply ${reply.id} because they are not the creator`,
       };
-
-      console.log("[ENGINE] applyAction:deleteReply:denied", result);
-      return result;
     }
 
     const nextReplies = state.replies.filter((item) => item.id !== reply.id);
 
-    const result = {
+    return {
       allowed: true,
       nextState: {
         ...state,
@@ -198,9 +178,6 @@ export function applyAction(state, action) {
       },
       logMessage: `User ${action.userId} deleted reply ${reply.id}`,
     };
-
-    console.log("[ENGINE] applyAction:deleteReply:success", result);
-    return result;
   }
 
   if (
@@ -210,14 +187,11 @@ export function applyAction(state, action) {
     const node = state.nodes.find((item) => item.id === action.nodeId);
 
     if (!node) {
-      const result = {
+      return {
         allowed: false,
         nextState: state,
         logMessage: `Node ${action.nodeId} not found`,
       };
-
-      console.log("[ENGINE] applyAction:vote:nodeNotFound", result);
-      return result;
     }
 
     const guard = canVoteNode({
@@ -226,33 +200,22 @@ export function applyAction(state, action) {
     });
 
     if (!guard.allowed) {
-      const result = {
+      return {
         allowed: false,
         nextState: state,
         logMessage: `Action denied for ${action.userId} on ${node.id}: ${guard.reason}`,
       };
-
-      console.log("[ENGINE] applyAction:vote:denied", result);
-      return result;
     }
 
     const clickedVote =
       action.type === ACTION_TOGGLE_UP ? VOTE_UP : VOTE_DOWN;
 
     const currentVote = node.votesByUser[action.userId] || VOTE_NONE;
-
-    console.log("[ENGINE] applyAction:vote:beforeTransition", {
-      nodeId: node.id,
-      userId: action.userId,
-      currentVote,
-      clickedVote,
-    });
-
     const nextVote = transitionVote(currentVote, clickedVote);
 
     const updatedNodes = state.nodes.map((item) => {
       if (item.id !== node.id) return item;
-      return updateNodeVote(item, action.userId, nextVote);
+      return updateEntityVote(item, action.userId, nextVote);
     });
 
     const updatedNode = updatedNodes.find((item) => item.id === node.id);
@@ -275,7 +238,7 @@ export function applyAction(state, action) {
       ...cascadePlan.cascadeMessages,
     ];
 
-    const result = {
+    return {
       allowed: true,
       nextState: {
         ...state,
@@ -284,17 +247,59 @@ export function applyAction(state, action) {
       },
       logMessage: logParts.join(" | "),
     };
-
-    console.log("[ENGINE] applyAction:vote:success", result);
-    return result;
   }
 
-  const result = {
+  if (
+    action.type === ACTION_TOGGLE_REPLY_UP ||
+    action.type === ACTION_TOGGLE_REPLY_DOWN
+  ) {
+    const reply = state.replies.find((item) => item.id === action.replyId);
+
+    if (!reply) {
+      return {
+        allowed: false,
+        nextState: state,
+        logMessage: `Reply ${action.replyId} not found`,
+      };
+    }
+
+    const guard = canVoteReply({
+      userId: action.userId,
+      reply,
+    });
+
+    if (!guard.allowed) {
+      return {
+        allowed: false,
+        nextState: state,
+        logMessage: `Action denied for ${action.userId} on reply ${reply.id}: ${guard.reason}`,
+      };
+    }
+
+    const clickedVote =
+      action.type === ACTION_TOGGLE_REPLY_UP ? VOTE_UP : VOTE_DOWN;
+
+    const currentVote = reply.votesByUser[action.userId] || VOTE_NONE;
+    const nextVote = transitionVote(currentVote, clickedVote);
+
+    const updatedReplies = state.replies.map((item) => {
+      if (item.id !== reply.id) return item;
+      return updateEntityVote(item, action.userId, nextVote);
+    });
+
+    return {
+      allowed: true,
+      nextState: {
+        ...state,
+        replies: updatedReplies,
+      },
+      logMessage: `User ${action.userId} changed vote on reply ${reply.id} from ${currentVote} to ${nextVote}`,
+    };
+  }
+
+  return {
     allowed: false,
     nextState: state,
     logMessage: `Unknown action type: ${action.type}`,
   };
-
-  console.log("[ENGINE] applyAction:unknownAction", result);
-  return result;
 }

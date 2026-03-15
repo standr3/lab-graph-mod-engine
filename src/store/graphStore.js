@@ -4,6 +4,8 @@ import {
   ACTION_ADD_REPLY,
   ACTION_DELETE_REPLY,
   ACTION_TOGGLE_DOWN,
+  ACTION_TOGGLE_REPLY_DOWN,
+  ACTION_TOGGLE_REPLY_UP,
   ACTION_TOGGLE_UP,
   USERS,
 } from "../graph/constants";
@@ -34,18 +36,10 @@ export const useGraphStore = create((set, get) => ({
       eventLog: [result.logMessage, ...current.eventLog],
     }));
 
-    console.log("[STORE] dispatch:end", {
-      nodes: get().nodes,
-      replies: get().replies,
-      eventLog: get().eventLog,
-    });
-
     return result;
   },
 
   addNode(userId) {
-    console.log("[STORE] addNode", { userId });
-
     return get().dispatch({
       type: ACTION_ADD_NODE,
       userId,
@@ -53,8 +47,6 @@ export const useGraphStore = create((set, get) => ({
   },
 
   addReply(userId, nodeId) {
-    console.log("[STORE] addReply", { userId, nodeId });
-
     return get().dispatch({
       type: ACTION_ADD_REPLY,
       userId,
@@ -63,8 +55,6 @@ export const useGraphStore = create((set, get) => ({
   },
 
   deleteReply(userId, replyId) {
-    console.log("[STORE] deleteReply", { userId, replyId });
-
     return get().dispatch({
       type: ACTION_DELETE_REPLY,
       userId,
@@ -73,8 +63,6 @@ export const useGraphStore = create((set, get) => ({
   },
 
   toggleUp(userId, nodeId) {
-    console.log("[STORE] toggleUp", { userId, nodeId });
-
     return get().dispatch({
       type: ACTION_TOGGLE_UP,
       userId,
@@ -83,12 +71,26 @@ export const useGraphStore = create((set, get) => ({
   },
 
   toggleDown(userId, nodeId) {
-    console.log("[STORE] toggleDown", { userId, nodeId });
-
     return get().dispatch({
       type: ACTION_TOGGLE_DOWN,
       userId,
       nodeId,
+    });
+  },
+
+  toggleReplyUp(userId, replyId) {
+    return get().dispatch({
+      type: ACTION_TOGGLE_REPLY_UP,
+      userId,
+      replyId,
+    });
+  },
+
+  toggleReplyDown(userId, replyId) {
+    return get().dispatch({
+      type: ACTION_TOGGLE_REPLY_DOWN,
+      userId,
+      replyId,
     });
   },
 }));

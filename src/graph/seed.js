@@ -35,11 +35,14 @@ export function makeNode(creatorId) {
 }
 
 export function makeReply(nodeId, creatorId, supportType) {
+  const governanceMode = resolveGovernanceMode(creatorId);
+
   const reply = {
     id: `r${replySeq++}`,
     nodeId,
     label: randomLabel(),
     creatorId,
+    governanceMode,
     supportType,
     votesByUser: {},
   };

@@ -15,7 +15,7 @@ import {
 import { makeLink, makeNode } from "./seed";
 import { canVoteLink, canVoteNode } from "./guards";
 import { transitionVote } from "./voteStateMachine";
-import { canAddLink, resolveNodeStance } from "./selectors";
+import { canAddLink, getNodeById, resolveNodeStance } from "./selectors";
 
 function updateEntityVote(entity, userId, nextVote) {
   const nextVotesByUser = { ...entity.votesByUser };
@@ -96,20 +96,34 @@ function propagateDownToLinks({ actorUserId, updatedNode, links }) {
 
 function planLinkRevalidationCascade({
   updatedNode,
+  nodes,
   links,
 }) {
-  const outgoingLinks = links.filter((link) => link.sourceId === updatedNode.id);
+  const adjacentLinks = links.filter(
+    (link) => link.sourceId === updatedNode.id || link.targetId === updatedNode.id
+  );
 
   const linksToDelete = [];
   const cascadeMessages = [];
 
-  for (const link of outgoingLinks) {
-    const linkStillValid = canAddLink(updatedNode, link.creatorId);
+  for (const link of adjacentLinks) {
+    const sourceNode = getNodeById(nodes, link.sourceId);
+    const targetNode = getNodeById(nodes, link.targetId);
+
+    if (!sourceNode || !targetNode) {
+      linksToDelete.push(link);
+      cascadeMessages.push(
+        `Cascade: deleted link ${link.id} because one of its nodes is missing`
+      );
+      continue;
+    }
+
+    const linkStillValid = canAddLink(sourceNode, targetNode, link.creatorId);
 
     if (!linkStillValid) {
       linksToDelete.push(link);
       cascadeMessages.push(
-        `Cascade: deleted link ${link.id} because it no longer has valid support on source node ${updatedNode.id}`
+        `Cascade: deleted link ${link.id} because creator ${link.creatorId} no longer supports both endpoints`
       );
     }
   }
@@ -134,7 +148,7 @@ export function applyAction(state, action) {
     };
   }
 
-    if (action.type === ACTION_ADD_LINK) {
+  if (action.type === ACTION_ADD_LINK) {
     const sourceNode = state.nodes.find((node) => node.id === action.sourceId);
     const targetNode = state.nodes.find((node) => node.id === action.targetId);
 
@@ -298,6 +312,7 @@ export function applyAction(state, action) {
     } else {
       const cascadePlan = planLinkRevalidationCascade({
         updatedNode,
+        nodes: updatedNodes,
         links: state.links,
       });
 

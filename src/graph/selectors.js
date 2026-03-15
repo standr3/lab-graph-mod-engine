@@ -106,24 +106,101 @@ export function resolveNodeStance(node, userId) {
   return "undecided";
 }
 
-export function canAddLink(sourceNode, userId) {
-  const stance = resolveNodeStance(sourceNode, userId);
-  return stance === "canonical_true" || stance === "local_true";
+export function canAddLink(sourceNode, targetNode, userId) {
+  const sourceStance = resolveNodeStance(sourceNode, userId);
+  const targetStance = resolveNodeStance(targetNode, userId);
+
+  const sourceAllowed =
+    sourceStance === "canonical_true" || sourceStance === "local_true";
+  const targetAllowed =
+    targetStance === "canonical_true" || targetStance === "local_true";
+
+  const result = sourceAllowed && targetAllowed;
+
+  console.log("[POLICY] canAddLink", {
+    sourceNodeId: sourceNode.id,
+    targetNodeId: targetNode.id,
+    userId,
+    sourceStance,
+    targetStance,
+    result,
+  });
+
+  return result;
 }
 
-export function getLinkCreationMode(sourceNode, userId) {
-  return canAddLink(sourceNode, userId) ? "enabled" : "disabled";
+export function getLinkCreationMode(sourceNode, targetNode, userId) {
+  if (!sourceNode || !targetNode) {
+    const result = "disabled";
+
+    console.log("[POLICY] getLinkCreationMode", {
+      sourceNodeId: sourceNode?.id || null,
+      targetNodeId: targetNode?.id || null,
+      userId,
+      result,
+      reason: "missing_node",
+    });
+
+    return result;
+  }
+
+  const allowed = canAddLink(sourceNode, targetNode, userId);
+  const result = allowed ? "enabled" : "disabled";
+
+  console.log("[POLICY] getLinkCreationMode", {
+    sourceNodeId: sourceNode.id,
+    targetNodeId: targetNode.id,
+    userId,
+    result,
+  });
+
+  return result;
 }
 
-export function getLinkCreationReason(sourceNode, userId) {
-  const stance = resolveNodeStance(sourceNode, userId);
+export function getLinkCreationReason(sourceNode, targetNode, userId) {
+  if (!sourceNode || !targetNode) {
+    const result = "link blocked: select a valid target node";
 
-  if (stance === "canonical_true") return "link allowed: canonical truth";
-  if (stance === "canonical_false") return "link blocked: owner marked source node as false";
-  if (stance === "local_true") return "link allowed: you support this source node";
-  if (stance === "local_false") return "link blocked: you marked source node as false";
+    console.log("[POLICY] getLinkCreationReason", {
+      sourceNodeId: sourceNode?.id || null,
+      targetNodeId: targetNode?.id || null,
+      userId,
+      result,
+    });
 
-  return "link blocked: endorse source node first";
+    return result;
+  }
+
+  const sourceStance = resolveNodeStance(sourceNode, userId);
+  const targetStance = resolveNodeStance(targetNode, userId);
+
+  const sourceAllowed =
+    sourceStance === "canonical_true" || sourceStance === "local_true";
+  const targetAllowed =
+    targetStance === "canonical_true" || targetStance === "local_true";
+
+  let result = "link allowed";
+
+  if (!sourceAllowed && !targetAllowed) {
+    result = "link blocked: endorse both source and target nodes first";
+  } else if (!sourceAllowed) {
+    result = "link blocked: endorse source node first";
+  } else if (!targetAllowed) {
+    result = "link blocked: endorse target node first";
+  } else {
+    result = "link allowed: you support both source and target nodes";
+  }
+
+  console.log("[POLICY] getLinkCreationReason", {
+    sourceNodeId: sourceNode.id,
+    targetNodeId: targetNode.id,
+    userId,
+    sourceStance,
+    targetStance,
+    result,
+  });
+
+  return result;
 }
 
 export function getEntityVoteControlsMode(entity, userId) {

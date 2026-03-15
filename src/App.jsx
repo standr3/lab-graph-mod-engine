@@ -18,7 +18,14 @@ import {
 } from "./graph/selectors";
 import { VOTE_DOWN, VOTE_UP } from "./graph/constants";
 
-function LinkBlock({ link, nodes, userId, deleteLink, toggleLinkUp, toggleLinkDown }) {
+function LinkBlock({
+  link,
+  nodes,
+  userId,
+  deleteLink,
+  toggleLinkUp,
+  toggleLinkDown,
+}) {
   const sourceNode = getNodeById(nodes, link.sourceId);
   const targetNode = getNodeById(nodes, link.targetId);
 
@@ -192,14 +199,28 @@ function UserView({ userId, title }) {
         {nodes.map((node) => {
           const myVote = getNodeVoteForUser(node, userId);
           const voteControlsMode = getVoteControlsMode(node, userId);
-          const linkCreationMode = getLinkCreationMode(node, userId);
-          const linkReason = getLinkCreationReason(node, userId);
           const authoritativeByOrigin = isNodeAuthoritativeByOrigin(node);
           const canonicalStatus = getNodeCanonicalStatus(node);
           const isOwnNode = node.creatorId === userId;
           const outgoingLinks = getOutgoingLinks(links, node.id);
           const targetOptions = targetOptionsBySource[node.id] || [];
-          const selectedTargetId = selectedTargets[node.id] || targetOptions[0]?.id || "";
+
+          const selectedTargetId =
+            selectedTargets[node.id] || targetOptions[0]?.id || "";
+          const selectedTargetNode = selectedTargetId
+            ? getNodeById(nodes, selectedTargetId)
+            : null;
+
+          const linkCreationMode = getLinkCreationMode(
+            node,
+            selectedTargetNode,
+            userId
+          );
+          const linkReason = getLinkCreationReason(
+            node,
+            selectedTargetNode,
+            userId
+          );
 
           return (
             <div

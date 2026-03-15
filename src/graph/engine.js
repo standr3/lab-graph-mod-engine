@@ -134,7 +134,7 @@ export function applyAction(state, action) {
     };
   }
 
-  if (action.type === ACTION_ADD_LINK) {
+    if (action.type === ACTION_ADD_LINK) {
     const sourceNode = state.nodes.find((node) => node.id === action.sourceId);
     const targetNode = state.nodes.find((node) => node.id === action.targetId);
 
@@ -175,7 +175,24 @@ export function applyAction(state, action) {
       };
     }
 
-    const supportType = resolveLinkSupportType(sourceNode, action.userId);
+    const linkAllowed = canAddLink(sourceNode, targetNode, action.userId);
+
+    if (!linkAllowed) {
+      return {
+        allowed: false,
+        nextState: state,
+        logMessage: `Cannot add link: user ${action.userId} must support both source ${action.sourceId} and target ${action.targetId}`,
+      };
+    }
+
+    const sourceStance = resolveNodeStance(sourceNode, action.userId);
+    const targetStance = resolveNodeStance(targetNode, action.userId);
+
+    const supportType =
+      sourceStance === "canonical_true" && targetStance === "canonical_true"
+        ? LINK_SUPPORT_CANONICAL
+        : LINK_SUPPORT_LOCAL;
+
     const newLink = makeLink(
       action.sourceId,
       action.targetId,

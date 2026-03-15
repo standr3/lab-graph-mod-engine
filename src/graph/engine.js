@@ -13,7 +13,7 @@ import {
 import { makeNode, makeReply } from "./seed";
 import { canVoteNode } from "./guards";
 import { transitionVote } from "./voteStateMachine";
-import { resolveNodeStance } from "./selectors";
+import { canAddReply, resolveNodeStance } from "./selectors";
 
 function updateNodeVote(node, userId, nextVote) {
   console.log("[ENGINE] updateNodeVote:start", {
@@ -62,44 +62,49 @@ function resolveReplySupportType(node, userId) {
   return supportType;
 }
 
-function planCascadeForUndoUp({ node, replies, userId, currentVote, nextVote }) {
-  console.log("[ENGINE] planCascadeForUndoUp:start", {
-    nodeId: node.id,
-    userId,
-    currentVote,
-    nextVote,
+function planReplyRevalidationCascade({
+  originalNode,
+  updatedNode,
+  replies,
+}) {
+  console.log("[ENGINE] planReplyRevalidationCascade:start", {
+    nodeId: originalNode.id,
+    originalVotesByUser: originalNode.votesByUser,
+    updatedVotesByUser: updatedNode.votesByUser,
   });
 
-  if (!(currentVote === VOTE_UP && nextVote === VOTE_NONE)) {
-    const result = {
-      repliesToDelete: [],
-      cascadeMessages: [],
-    };
+  const nodeReplies = replies.filter((reply) => reply.nodeId === updatedNode.id);
 
-    console.log("[ENGINE] planCascadeForUndoUp:skip:notUndoUp", result);
-    return result;
+  const repliesToDelete = [];
+  const cascadeMessages = [];
+
+  for (const reply of nodeReplies) {
+    const replyStillValid = canAddReply(updatedNode, reply.creatorId);
+
+    console.log("[ENGINE] planReplyRevalidationCascade:replyCheck", {
+      replyId: reply.id,
+      nodeId: updatedNode.id,
+      replyCreatorId: reply.creatorId,
+      supportType: reply.supportType,
+      replyStillValid,
+      stanceAfterUpdate: resolveNodeStance(updatedNode, reply.creatorId),
+    });
+
+    if (!replyStillValid) {
+      repliesToDelete.push(reply);
+      cascadeMessages.push(
+        `Cascade: deleted reply ${reply.id} because it no longer has valid support on node ${updatedNode.id}`
+      );
+    }
   }
-
-  const repliesToDelete = replies.filter(
-    (reply) =>
-      reply.nodeId === node.id &&
-      reply.creatorId === userId &&
-      reply.supportType === REPLY_SUPPORT_LOCAL
-  );
-
-  const cascadeMessages = repliesToDelete.map(
-    (reply) =>
-      `Cascade: deleted reply ${reply.id} because user ${userId} removed local support from node ${node.id}`
-  );
 
   const result = {
     repliesToDelete,
     cascadeMessages,
   };
 
-  console.log("[ENGINE] planCascadeForUndoUp:end", {
-    nodeId: node.id,
-    userId,
+  console.log("[ENGINE] planReplyRevalidationCascade:end", {
+    nodeId: updatedNode.id,
     replyIdsToDelete: repliesToDelete.map((reply) => reply.id),
   });
 
@@ -245,17 +250,17 @@ export function applyAction(state, action) {
 
     const nextVote = transitionVote(currentVote, clickedVote);
 
-    const cascadePlan = planCascadeForUndoUp({
-      node,
-      replies: state.replies,
-      userId: action.userId,
-      currentVote,
-      nextVote,
-    });
-
     const updatedNodes = state.nodes.map((item) => {
       if (item.id !== node.id) return item;
       return updateNodeVote(item, action.userId, nextVote);
+    });
+
+    const updatedNode = updatedNodes.find((item) => item.id === node.id);
+
+    const cascadePlan = planReplyRevalidationCascade({
+      originalNode: node,
+      updatedNode,
+      replies: state.replies,
     });
 
     const remainingReplies = state.replies.filter(

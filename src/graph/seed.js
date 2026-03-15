@@ -34,12 +34,13 @@ export function makeNode(creatorId) {
   };
 }
 
-export function makeReply(nodeId, creatorId) {
+export function makeReply(nodeId, creatorId, supportType) {
   const reply = {
     id: `r${replySeq++}`,
     nodeId,
     label: randomLabel(),
     creatorId,
+    supportType,
     votesByUser: {},
   };
 

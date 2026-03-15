@@ -17,6 +17,7 @@ function UserView({ userId, title }) {
   const replies = useGraphStore((s) => s.replies);
   const addNode = useGraphStore((s) => s.addNode);
   const addReply = useGraphStore((s) => s.addReply);
+  const deleteReply = useGraphStore((s) => s.deleteReply);
   const toggleUp = useGraphStore((s) => s.toggleUp);
   const toggleDown = useGraphStore((s) => s.toggleDown);
 
@@ -146,21 +147,33 @@ function UserView({ userId, title }) {
                     gap: 8,
                   }}
                 >
-                  {nodeReplies.map((reply) => (
-                    <div
-                      key={reply.id}
-                      style={{
-                        border: "1px solid #f0f0f0",
-                        borderRadius: 8,
-                        padding: 8,
-                        background: "#fafafa",
-                      }}
-                    >
-                      <div style={{ fontFamily: "monospace" }}>
-                        {formatReplyText(reply)}
+                  {nodeReplies.map((reply) => {
+                    const isOwnReply = reply.creatorId === userId;
+
+                    return (
+                      <div
+                        key={reply.id}
+                        style={{
+                          border: "1px solid #f0f0f0",
+                          borderRadius: 8,
+                          padding: 8,
+                          background: "#fafafa",
+                        }}
+                      >
+                        <div style={{ fontFamily: "monospace" }}>
+                          {formatReplyText(reply)}
+                        </div>
+
+                        {isOwnReply ? (
+                          <div style={{ marginTop: 8 }}>
+                            <button onClick={() => deleteReply(userId, reply.id)}>
+                              Delete reply
+                            </button>
+                          </div>
+                        ) : null}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : null}
             </div>

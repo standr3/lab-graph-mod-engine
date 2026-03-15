@@ -1,8 +1,11 @@
 import {
   ACTION_ADD_NODE,
   ACTION_ADD_REPLY,
+  ACTION_DELETE_REPLY,
   ACTION_TOGGLE_DOWN,
   ACTION_TOGGLE_UP,
+  REPLY_SUPPORT_CANONICAL,
+  REPLY_SUPPORT_LOCAL,
   VOTE_NONE,
   VOTE_DOWN,
   VOTE_UP,
@@ -10,6 +13,7 @@ import {
 import { makeNode, makeReply } from "./seed";
 import { canVoteNode } from "./guards";
 import { transitionVote } from "./voteStateMachine";
+import { resolveNodeStance } from "./selectors";
 
 function updateNodeVote(node, userId, nextVote) {
   console.log("[ENGINE] updateNodeVote:start", {
@@ -38,6 +42,68 @@ function updateNodeVote(node, userId, nextVote) {
   });
 
   return updatedNode;
+}
+
+function resolveReplySupportType(node, userId) {
+  const stance = resolveNodeStance(node, userId);
+
+  const supportType =
+    stance === "canonical_true"
+      ? REPLY_SUPPORT_CANONICAL
+      : REPLY_SUPPORT_LOCAL;
+
+  console.log("[ENGINE] resolveReplySupportType", {
+    nodeId: node.id,
+    userId,
+    stance,
+    supportType,
+  });
+
+  return supportType;
+}
+
+function planCascadeForUndoUp({ node, replies, userId, currentVote, nextVote }) {
+  console.log("[ENGINE] planCascadeForUndoUp:start", {
+    nodeId: node.id,
+    userId,
+    currentVote,
+    nextVote,
+  });
+
+  if (!(currentVote === VOTE_UP && nextVote === VOTE_NONE)) {
+    const result = {
+      repliesToDelete: [],
+      cascadeMessages: [],
+    };
+
+    console.log("[ENGINE] planCascadeForUndoUp:skip:notUndoUp", result);
+    return result;
+  }
+
+  const repliesToDelete = replies.filter(
+    (reply) =>
+      reply.nodeId === node.id &&
+      reply.creatorId === userId &&
+      reply.supportType === REPLY_SUPPORT_LOCAL
+  );
+
+  const cascadeMessages = repliesToDelete.map(
+    (reply) =>
+      `Cascade: deleted reply ${reply.id} because user ${userId} removed local support from node ${node.id}`
+  );
+
+  const result = {
+    repliesToDelete,
+    cascadeMessages,
+  };
+
+  console.log("[ENGINE] planCascadeForUndoUp:end", {
+    nodeId: node.id,
+    userId,
+    replyIdsToDelete: repliesToDelete.map((reply) => reply.id),
+  });
+
+  return result;
 }
 
 export function applyAction(state, action) {
@@ -76,7 +142,8 @@ export function applyAction(state, action) {
       return result;
     }
 
-    const newReply = makeReply(action.nodeId, action.userId);
+    const supportType = resolveReplySupportType(parentNode, action.userId);
+    const newReply = makeReply(action.nodeId, action.userId, supportType);
 
     const result = {
       allowed: true,
@@ -84,10 +151,50 @@ export function applyAction(state, action) {
         ...state,
         replies: [newReply, ...state.replies],
       },
-      logMessage: `User ${action.userId} added reply ${newReply.id} to node ${action.nodeId}`,
+      logMessage: `User ${action.userId} added reply ${newReply.id} to node ${action.nodeId} with support ${supportType}`,
     };
 
     console.log("[ENGINE] applyAction:addReply:success", result);
+    return result;
+  }
+
+  if (action.type === ACTION_DELETE_REPLY) {
+    const reply = state.replies.find((item) => item.id === action.replyId);
+
+    if (!reply) {
+      const result = {
+        allowed: false,
+        nextState: state,
+        logMessage: `Reply ${action.replyId} not found`,
+      };
+
+      console.log("[ENGINE] applyAction:deleteReply:notFound", result);
+      return result;
+    }
+
+    if (reply.creatorId !== action.userId) {
+      const result = {
+        allowed: false,
+        nextState: state,
+        logMessage: `User ${action.userId} cannot delete reply ${reply.id} because they are not the creator`,
+      };
+
+      console.log("[ENGINE] applyAction:deleteReply:denied", result);
+      return result;
+    }
+
+    const nextReplies = state.replies.filter((item) => item.id !== reply.id);
+
+    const result = {
+      allowed: true,
+      nextState: {
+        ...state,
+        replies: nextReplies,
+      },
+      logMessage: `User ${action.userId} deleted reply ${reply.id}`,
+    };
+
+    console.log("[ENGINE] applyAction:deleteReply:success", result);
     return result;
   }
 
@@ -138,18 +245,39 @@ export function applyAction(state, action) {
 
     const nextVote = transitionVote(currentVote, clickedVote);
 
+    const cascadePlan = planCascadeForUndoUp({
+      node,
+      replies: state.replies,
+      userId: action.userId,
+      currentVote,
+      nextVote,
+    });
+
     const updatedNodes = state.nodes.map((item) => {
       if (item.id !== node.id) return item;
       return updateNodeVote(item, action.userId, nextVote);
     });
+
+    const remainingReplies = state.replies.filter(
+      (reply) =>
+        !cascadePlan.repliesToDelete.some(
+          (replyToDelete) => replyToDelete.id === reply.id
+        )
+    );
+
+    const logParts = [
+      `User ${action.userId} changed vote on ${node.id} from ${currentVote} to ${nextVote}`,
+      ...cascadePlan.cascadeMessages,
+    ];
 
     const result = {
       allowed: true,
       nextState: {
         ...state,
         nodes: updatedNodes,
+        replies: remainingReplies,
       },
-      logMessage: `User ${action.userId} changed vote on ${node.id} from ${currentVote} to ${nextVote}`,
+      logMessage: logParts.join(" | "),
     };
 
     console.log("[ENGINE] applyAction:vote:success", result);

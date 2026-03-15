@@ -2,6 +2,7 @@ import { create } from "zustand";
 import {
   ACTION_ADD_NODE,
   ACTION_ADD_REPLY,
+  ACTION_DELETE_REPLY,
   ACTION_TOGGLE_DOWN,
   ACTION_TOGGLE_UP,
   USERS,
@@ -58,6 +59,16 @@ export const useGraphStore = create((set, get) => ({
       type: ACTION_ADD_REPLY,
       userId,
       nodeId,
+    });
+  },
+
+  deleteReply(userId, replyId) {
+    console.log("[STORE] deleteReply", { userId, replyId });
+
+    return get().dispatch({
+      type: ACTION_DELETE_REPLY,
+      userId,
+      replyId,
     });
   },
 

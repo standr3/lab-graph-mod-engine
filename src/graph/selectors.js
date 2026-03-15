@@ -81,7 +81,7 @@ export function formatReplyText(reply) {
   const upList = getUpList(reply);
   const downList = getDownList(reply);
 
-  const formatted = `[${reply.label} : ${reply.creatorId} + (${upList.join(", ")}) - (${downList.join(", ")})]`;
+  const formatted = `[${reply.label} : ${reply.creatorId} + (${upList.join(", ")}) - (${downList.join(", ")}) | support:${reply.supportType}]`;
 
   console.log("[SELECTOR] formatReplyText", {
     replyId: reply.id,
@@ -333,8 +333,6 @@ export function getReplyBlockReason(node, userId) {
 
   return result;
 }
-
-
 
 export function getVoteControlsMode(node, userId) {
   if (isNodeAuthoritativeByOrigin(node)) {

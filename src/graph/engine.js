@@ -19,9 +19,9 @@ import {
   canAddLink,
   getNodeById,
   isGuestLinkCreatorReviewLockedByForeignReviews,
-  planLinkVoteCascade,
   resolveNodeStance,
 } from "./selectors";
+import { planLinkVoteCascade } from "./planners";
 
 function updateEntityVote(entity, userId, nextVote) {
   const nextVotesByUser = { ...entity.votesByUser };
@@ -71,7 +71,7 @@ function propagateDownToLinks({ actorUserId, updatedNode, links }) {
       }
 
       cascadeMessages.push(
-        `Cascade: owner down propagated to link ${nextLink.id} from node ${updatedNode.id} and globally locked voting`
+        `Cascade: owner down propagated to link ${nextLink.id} from node ${updatedNode.id} and globally locked voting`,
       );
     } else {
       const alreadyLockedForUser = !!nextLink.voteLocksByUser?.[actorUserId];
@@ -87,7 +87,7 @@ function propagateDownToLinks({ actorUserId, updatedNode, links }) {
       }
 
       cascadeMessages.push(
-        `Cascade: down from ${actorUserId} propagated to link ${nextLink.id} from node ${updatedNode.id} and locked voting for that user`
+        `Cascade: down from ${actorUserId} propagated to link ${nextLink.id} from node ${updatedNode.id} and locked voting for that user`,
       );
     }
 
@@ -100,13 +100,10 @@ function propagateDownToLinks({ actorUserId, updatedNode, links }) {
   };
 }
 
-function planLinkRevalidationCascade({
-  updatedNode,
-  nodes,
-  links,
-}) {
+function planLinkRevalidationCascade({ updatedNode, nodes, links }) {
   const adjacentLinks = links.filter(
-    (link) => link.sourceId === updatedNode.id || link.targetId === updatedNode.id
+    (link) =>
+      link.sourceId === updatedNode.id || link.targetId === updatedNode.id,
   );
 
   const linksToDelete = [];
@@ -119,7 +116,7 @@ function planLinkRevalidationCascade({
     if (!sourceNode || !targetNode) {
       linksToDelete.push(link);
       cascadeMessages.push(
-        `Cascade: deleted link ${link.id} because one of its nodes is missing`
+        `Cascade: deleted link ${link.id} because one of its nodes is missing`,
       );
       continue;
     }
@@ -129,7 +126,7 @@ function planLinkRevalidationCascade({
     if (!linkStillValid) {
       linksToDelete.push(link);
       cascadeMessages.push(
-        `Cascade: deleted link ${link.id} because creator ${link.creatorId} no longer supports both endpoints`
+        `Cascade: deleted link ${link.id} because creator ${link.creatorId} no longer supports both endpoints`,
       );
     }
   }
@@ -151,6 +148,54 @@ function applyEndpointCascadeChanges(nodes, userId, plan, nodeId) {
   });
 }
 
+function applyPlan(state, plan) {
+  if (!plan.allowed) return state;
+
+  let nodes = state.nodes;
+  let links = state.links;
+
+  for (const change of plan.nodeChanges) {
+    nodes = nodes.map((n) => {
+      if (n.id !== change.nodeId) return n;
+
+      const nextVotes = { ...n.votesByUser };
+
+      if (change.vote === null) {
+        delete nextVotes[change.userId];
+      } else {
+        nextVotes[change.userId] = change.vote;
+      }
+
+      return { ...n, votesByUser: nextVotes };
+    });
+  }
+
+  for (const change of plan.linkChanges) {
+    links = links.map((l) => {
+      if (l.id !== change.linkId) return l;
+
+      const nextVotes = { ...l.votesByUser };
+
+      if (change.vote === null) {
+        delete nextVotes[change.userId];
+      } else {
+        nextVotes[change.userId] = change.vote;
+      }
+
+      return { ...l, votesByUser: nextVotes };
+    });
+  }
+
+  for (const del of plan.deletions) {
+    links = links.filter((l) => l.id !== del.linkId);
+  }
+
+  return {
+    ...state,
+    nodes,
+    links,
+  };
+}
 export function applyAction(state, action) {
   if (action.type === ACTION_ADD_NODE) {
     const newNode = makeNode(action.userId);
@@ -195,7 +240,7 @@ export function applyAction(state, action) {
 
     const alreadyExists = state.links.some(
       (link) =>
-        link.sourceId === action.sourceId && link.targetId === action.targetId
+        link.sourceId === action.sourceId && link.targetId === action.targetId,
     );
 
     if (alreadyExists) {
@@ -228,7 +273,7 @@ export function applyAction(state, action) {
       action.sourceId,
       action.targetId,
       action.userId,
-      supportType
+      supportType,
     );
 
     return {
@@ -280,10 +325,7 @@ export function applyAction(state, action) {
     };
   }
 
-  if (
-    action.type === ACTION_TOGGLE_UP ||
-    action.type === ACTION_TOGGLE_DOWN
-  ) {
+  if (action.type === ACTION_TOGGLE_UP || action.type === ACTION_TOGGLE_DOWN) {
     const node = state.nodes.find((item) => item.id === action.nodeId);
 
     if (!node) {
@@ -307,8 +349,7 @@ export function applyAction(state, action) {
       };
     }
 
-    const clickedVote =
-      action.type === ACTION_TOGGLE_UP ? VOTE_UP : VOTE_DOWN;
+    const clickedVote = action.type === ACTION_TOGGLE_UP ? VOTE_UP : VOTE_DOWN;
 
     const currentVote = node.votesByUser[action.userId] || VOTE_NONE;
     const nextVote = transitionVote(currentVote, clickedVote);
@@ -345,8 +386,8 @@ export function applyAction(state, action) {
     const nextLinks = intermediateLinks.filter(
       (link) =>
         !cascadePlan.linksToDelete.some(
-          (linkToDelete) => linkToDelete.id === link.id
-        )
+          (linkToDelete) => linkToDelete.id === link.id,
+        ),
     );
 
     cascadeMessages.push(...cascadePlan.cascadeMessages);
@@ -394,75 +435,29 @@ export function applyAction(state, action) {
       };
     }
 
-    const direction =
-      action.type === ACTION_TOGGLE_LINK_UP ? "up" : "down";
+    const direction = action.type === ACTION_TOGGLE_LINK_UP ? "up" : "down";
 
-    const cascadePlan = planLinkVoteCascade(
+    const plan = planLinkVoteCascade(
       link,
       action.userId,
       direction,
-      state.nodes
+      state.nodes,
     );
 
-    if (!cascadePlan.allowed) {
+    if (!plan.allowed) {
       return {
         allowed: false,
         nextState: state,
-        logMessage: `Action denied for ${action.userId} on link ${link.id}: ${cascadePlan.reason}`,
+        logMessage: plan.reason,
       };
     }
 
-    let updatedNodes = state.nodes;
-
-    updatedNodes = applyEndpointCascadeChanges(
-      updatedNodes,
-      action.userId,
-      cascadePlan.sourcePlan,
-      link.sourceId
-    );
-
-    updatedNodes = applyEndpointCascadeChanges(
-      updatedNodes,
-      action.userId,
-      cascadePlan.targetPlan,
-      link.targetId
-    );
-
-    const clickedVote =
-      action.type === ACTION_TOGGLE_LINK_UP ? VOTE_UP : VOTE_DOWN;
-
-    const currentVote = link.votesByUser[action.userId] || VOTE_NONE;
-    const nextVote = transitionVote(currentVote, clickedVote);
-
-    const updatedLinks = state.links.map((item) => {
-      if (item.id !== link.id) return item;
-      return updateEntityVote(item, action.userId, nextVote);
-    });
-
-    const logParts = [
-      `User ${action.userId} changed vote on link ${link.id} from ${currentVote} to ${nextVote}`,
-    ];
-
-    if (cascadePlan.sourcePlan?.action && cascadePlan.sourcePlan.action !== "noop") {
-      logParts.push(
-        `Cascade: source node ${link.sourceId} -> ${cascadePlan.sourcePlan.nextVote}`
-      );
-    }
-
-    if (cascadePlan.targetPlan?.action && cascadePlan.targetPlan.action !== "noop") {
-      logParts.push(
-        `Cascade: target node ${link.targetId} -> ${cascadePlan.targetPlan.nextVote}`
-      );
-    }
+    const nextState = applyPlan(state, plan);
 
     return {
       allowed: true,
-      nextState: {
-        ...state,
-        nodes: updatedNodes,
-        links: updatedLinks,
-      },
-      logMessage: logParts.join(" | "),
+      nextState,
+      logMessage: `Link ${link.id} vote cascade applied`,
     };
   }
 

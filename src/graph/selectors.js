@@ -4,6 +4,7 @@ import {
   VOTE_NONE,
   VOTE_UP,
 } from "./constants";
+import { planLinkVoteCascade } from "./planners";
 
 export function getVoteForUser(entity, userId) {
   return entity.votesByUser[userId] || VOTE_NONE;
@@ -153,7 +154,7 @@ export function getLinkCreationReason(sourceNode, targetNode, userId) {
 
 export function linkHasForeignReviews(link) {
   return Object.entries(link.votesByUser).some(
-    ([reviewerId, vote]) => reviewerId !== link.creatorId && vote !== VOTE_NONE,
+    ([reviewerId, vote]) => reviewerId !== link.creatorId && vote !== VOTE_NONE
   );
 }
 
@@ -171,7 +172,7 @@ export function isNodeReviewLockedByReviewedUserLink(nodeId, links, userId) {
       link.creatorId === userId &&
       link.creatorId !== "O" &&
       linkHasForeignReviews(link) &&
-      (link.sourceId === nodeId || link.targetId === nodeId),
+      (link.sourceId === nodeId || link.targetId === nodeId)
   );
 }
 
@@ -217,103 +218,6 @@ export function getLinkDeleteReason(link, userId) {
     return "delete blocked: this guest link has reviews from other users";
   }
   return "delete allowed";
-}
-
-/**
- * Endpoint planning for link vote cascade
- */
-export function planEndpointTransition(node, userId, desiredDirection) {
-  const stance = resolveNodeStance(node, userId);
-
-  if (desiredDirection === "up") {
-    if (stance === "canonical_true" || stance === "local_true") {
-      return { allowed: true, action: "noop", nextVote: null, stance };
-    }
-
-    if (stance === "undecided") {
-      return {
-        allowed: true,
-        action: "set_up_local",
-        nextVote: VOTE_UP,
-        stance,
-      };
-    }
-
-    if (stance === "local_false") {
-      return {
-        allowed: true,
-        action: "flip_to_up_local",
-        nextVote: VOTE_UP,
-        stance,
-      };
-    }
-
-    return { allowed: false, action: "blocked", nextVote: null, stance };
-  }
-
-  if (desiredDirection === "down") {
-    if (stance === "canonical_false" || stance === "local_false") {
-      return { allowed: true, action: "noop", nextVote: null, stance };
-    }
-
-    if (stance === "undecided") {
-      return {
-        allowed: true,
-        action: "set_down_local",
-        nextVote: VOTE_DOWN,
-        stance,
-      };
-    }
-
-    if (stance === "local_true") {
-      return {
-        allowed: true,
-        action: "flip_to_down_local",
-        nextVote: VOTE_DOWN,
-        stance,
-      };
-    }
-
-    return { allowed: false, action: "blocked", nextVote: null, stance };
-  }
-
-  return { allowed: false, action: "blocked", nextVote: null, stance };
-}
-
-export function planLinkVoteCascade(link, userId, desiredDirection, nodes) {
-  const sourceNode = getNodeById(nodes, link.sourceId);
-  const targetNode = getNodeById(nodes, link.targetId);
-
-  if (!sourceNode || !targetNode) {
-    return {
-      allowed: false,
-      reason: "missing endpoint",
-      sourcePlan: null,
-      targetPlan: null,
-    };
-  }
-
-  const sourcePlan = planEndpointTransition(
-    sourceNode,
-    userId,
-    desiredDirection,
-  );
-  const targetPlan = planEndpointTransition(
-    targetNode,
-    userId,
-    desiredDirection,
-  );
-
-  const allowed = sourcePlan.allowed && targetPlan.allowed;
-
-  return {
-    allowed,
-    reason: allowed
-      ? ""
-      : `cannot cascade ${desiredDirection} to both endpoints`,
-    sourcePlan,
-    targetPlan,
-  };
 }
 
 export function getLinkUpActionMode(link, userId, nodes) {

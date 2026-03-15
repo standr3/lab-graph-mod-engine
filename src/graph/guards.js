@@ -55,6 +55,8 @@ export function canVoteReply({ userId, reply }) {
     replyCreatorId: reply.creatorId,
     governanceMode: reply.governanceMode,
     ownerVote: reply.votesByUser["O"] || null,
+    globalVoteLocked: reply.globalVoteLocked,
+    voteLocksByUser: reply.voteLocksByUser,
   });
 
   if (reply.governanceMode === GOVERNANCE_AUTHORITATIVE) {
@@ -74,6 +76,26 @@ export function canVoteReply({ userId, reply }) {
     };
 
     console.log("[GUARD] canVoteReply:deny:selfVote", result);
+    return result;
+  }
+
+  if (reply.globalVoteLocked) {
+    const result = {
+      allowed: false,
+      reason: "This reply is globally vote-locked.",
+    };
+
+    console.log("[GUARD] canVoteReply:deny:globalLock", result);
+    return result;
+  }
+
+  if (reply.voteLocksByUser?.[userId]) {
+    const result = {
+      allowed: false,
+      reason: "Your voting on this reply is locked.",
+    };
+
+    console.log("[GUARD] canVoteReply:deny:userLock", result);
     return result;
   }
 

@@ -45,6 +45,8 @@ export function makeReply(nodeId, creatorId, supportType) {
     governanceMode,
     supportType,
     votesByUser: {},
+    voteLocksByUser: {},
+    globalVoteLocked: false,
   };
 
   console.log("[SEED] makeReply", reply);

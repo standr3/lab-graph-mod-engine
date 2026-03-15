@@ -64,6 +64,78 @@ function resolveReplySupportType(node, userId) {
   return supportType;
 }
 
+function isDownEvent({ currentVote, nextVote }) {
+  const result = currentVote !== VOTE_DOWN && nextVote === VOTE_DOWN;
+
+  console.log("[ENGINE] isDownEvent", {
+    currentVote,
+    nextVote,
+    result,
+  });
+
+  return result;
+}
+
+function propagateDownToReplies({ actorUserId, updatedNode, replies }) {
+  console.log("[ENGINE] propagateDownToReplies:start", {
+    actorUserId,
+    nodeId: updatedNode.id,
+  });
+
+  const cascadeMessages = [];
+
+  const nextReplies = replies.map((reply) => {
+    if (reply.nodeId !== updatedNode.id) return reply;
+
+    let nextReply = reply;
+
+    const currentActorVote = nextReply.votesByUser[actorUserId] || VOTE_NONE;
+    if (currentActorVote !== VOTE_DOWN) {
+      nextReply = updateEntityVote(nextReply, actorUserId, VOTE_DOWN);
+    }
+
+    if (actorUserId === "O") {
+      if (!nextReply.globalVoteLocked) {
+        nextReply = {
+          ...nextReply,
+          globalVoteLocked: true,
+        };
+      }
+
+      cascadeMessages.push(
+        `Cascade: owner down propagated to reply ${nextReply.id} from node ${updatedNode.id} and globally locked voting`
+      );
+    } else {
+      const alreadyLockedForUser = !!nextReply.voteLocksByUser?.[actorUserId];
+
+      if (!alreadyLockedForUser) {
+        nextReply = {
+          ...nextReply,
+          voteLocksByUser: {
+            ...(nextReply.voteLocksByUser || {}),
+            [actorUserId]: true,
+          },
+        };
+      }
+
+      cascadeMessages.push(
+        `Cascade: down from ${actorUserId} propagated to reply ${nextReply.id} from node ${updatedNode.id} and locked voting for that user`
+      );
+    }
+
+    return nextReply;
+  });
+
+  const result = {
+    nextReplies,
+    cascadeMessages,
+  };
+
+  console.log("[ENGINE] propagateDownToReplies:end", result);
+
+  return result;
+}
+
 function planReplyRevalidationCascade({
   originalNode,
   updatedNode,
@@ -100,10 +172,17 @@ function planReplyRevalidationCascade({
     }
   }
 
-  return {
+  const result = {
     repliesToDelete,
     cascadeMessages,
   };
+
+  console.log("[ENGINE] planReplyRevalidationCascade:end", {
+    nodeId: updatedNode.id,
+    replyIdsToDelete: repliesToDelete.map((reply) => reply.id),
+  });
+
+  return result;
 }
 
 export function applyAction(state, action) {
@@ -220,22 +299,43 @@ export function applyAction(state, action) {
 
     const updatedNode = updatedNodes.find((item) => item.id === node.id);
 
-    const cascadePlan = planReplyRevalidationCascade({
-      originalNode: node,
-      updatedNode,
-      replies: state.replies,
+    const downEvent = isDownEvent({
+      currentVote,
+      nextVote,
     });
 
-    const remainingReplies = state.replies.filter(
-      (reply) =>
-        !cascadePlan.repliesToDelete.some(
-          (replyToDelete) => replyToDelete.id === reply.id
-        )
-    );
+    let nextReplies = state.replies;
+    let cascadeMessages = [];
+
+    if (downEvent) {
+      const propagationResult = propagateDownToReplies({
+        actorUserId: action.userId,
+        updatedNode,
+        replies: state.replies,
+      });
+
+      nextReplies = propagationResult.nextReplies;
+      cascadeMessages = propagationResult.cascadeMessages;
+    } else {
+      const cascadePlan = planReplyRevalidationCascade({
+        originalNode: node,
+        updatedNode,
+        replies: state.replies,
+      });
+
+      nextReplies = state.replies.filter(
+        (reply) =>
+          !cascadePlan.repliesToDelete.some(
+            (replyToDelete) => replyToDelete.id === reply.id
+          )
+      );
+
+      cascadeMessages = cascadePlan.cascadeMessages;
+    }
 
     const logParts = [
       `User ${action.userId} changed vote on ${node.id} from ${currentVote} to ${nextVote}`,
-      ...cascadePlan.cascadeMessages,
+      ...cascadeMessages,
     ];
 
     return {
@@ -243,7 +343,7 @@ export function applyAction(state, action) {
       nextState: {
         ...state,
         nodes: updatedNodes,
-        replies: remainingReplies,
+        replies: nextReplies,
       },
       logMessage: logParts.join(" | "),
     };

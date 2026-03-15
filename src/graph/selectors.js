@@ -198,21 +198,90 @@ export function resolveNodeStance(node, userId) {
   });
 
   if (isEntityAuthoritativeByOrigin(node)) {
-    return "canonical_true";
+    const result = "canonical_true";
+
+    console.log("[STANCE] resolveNodeStance:authoritativeByOrigin", {
+      nodeId: node.id,
+      userId,
+      result,
+    });
+
+    return result;
   }
 
   const ownerVote = getOwnerCanonicalVote(node);
 
-  if (ownerVote === VOTE_UP) return "canonical_true";
-  if (ownerVote === VOTE_DOWN) return "canonical_false";
-  if (node.creatorId === userId) return "local_true";
+  if (ownerVote === VOTE_UP) {
+    const result = "canonical_true";
+
+    console.log("[STANCE] resolveNodeStance:ownerUp", {
+      nodeId: node.id,
+      userId,
+      result,
+    });
+
+    return result;
+  }
+
+  if (ownerVote === VOTE_DOWN) {
+    const result = "canonical_false";
+
+    console.log("[STANCE] resolveNodeStance:ownerDown", {
+      nodeId: node.id,
+      userId,
+      result,
+    });
+
+    return result;
+  }
+
+  if (node.creatorId === userId) {
+    const result = "local_true";
+
+    console.log("[STANCE] resolveNodeStance:creatorPresumption", {
+      nodeId: node.id,
+      userId,
+      result,
+    });
+
+    return result;
+  }
 
   const userVote = getVoteForUser(node, userId);
 
-  if (userVote === VOTE_UP) return "local_true";
-  if (userVote === VOTE_DOWN) return "local_false";
+  if (userVote === VOTE_UP) {
+    const result = "local_true";
 
-  return "undecided";
+    console.log("[STANCE] resolveNodeStance:userUp", {
+      nodeId: node.id,
+      userId,
+      result,
+    });
+
+    return result;
+  }
+
+  if (userVote === VOTE_DOWN) {
+    const result = "local_false";
+
+    console.log("[STANCE] resolveNodeStance:userDown", {
+      nodeId: node.id,
+      userId,
+      result,
+    });
+
+    return result;
+  }
+
+  const result = "undecided";
+
+  console.log("[STANCE] resolveNodeStance:undecided", {
+    nodeId: node.id,
+    userId,
+    result,
+  });
+
+  return result;
 }
 
 export function canAddReply(node, userId) {
@@ -326,5 +395,79 @@ export function getVoteControlsMode(node, userId) {
 }
 
 export function getReplyVoteControlsMode(reply, userId) {
-  return getEntityVoteControlsMode(reply, userId);
+  if (isEntityAuthoritativeByOrigin(reply)) {
+    const result = "hidden";
+
+    console.log("[SELECTOR] getReplyVoteControlsMode", {
+      replyId: reply.id,
+      userId,
+      result,
+      reason: "authoritative_by_origin",
+    });
+
+    return result;
+  }
+
+  if (reply.creatorId === userId) {
+    const result = "hidden";
+
+    console.log("[SELECTOR] getReplyVoteControlsMode", {
+      replyId: reply.id,
+      userId,
+      result,
+      reason: "own_reply",
+    });
+
+    return result;
+  }
+
+  if (reply.globalVoteLocked) {
+    const result = "disabled";
+
+    console.log("[SELECTOR] getReplyVoteControlsMode", {
+      replyId: reply.id,
+      userId,
+      result,
+      reason: "global_vote_locked",
+    });
+
+    return result;
+  }
+
+  if (reply.voteLocksByUser?.[userId]) {
+    const result = "disabled";
+
+    console.log("[SELECTOR] getReplyVoteControlsMode", {
+      replyId: reply.id,
+      userId,
+      result,
+      reason: "user_vote_locked",
+    });
+
+    return result;
+  }
+
+  if (userId !== "O" && isEntityCanonizedByOwner(reply)) {
+    const result = "disabled";
+
+    console.log("[SELECTOR] getReplyVoteControlsMode", {
+      replyId: reply.id,
+      userId,
+      result,
+      reason: "canonized_by_owner",
+    });
+
+    return result;
+  }
+
+  const result = "enabled";
+
+  console.log("[SELECTOR] getReplyVoteControlsMode", {
+    replyId: reply.id,
+    userId,
+    result,
+    reason: "default",
+  });
+
+  return result;
 }

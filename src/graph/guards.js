@@ -48,72 +48,72 @@ export function canVoteNode({ userId, node }) {
   return result;
 }
 
-export function canVoteReply({ userId, reply }) {
-  console.log("[GUARD] canVoteReply:start", {
+export function canVoteLink({ userId, link }) {
+  console.log("[GUARD] canVoteLink:start", {
     userId,
-    replyId: reply.id,
-    replyCreatorId: reply.creatorId,
-    governanceMode: reply.governanceMode,
-    ownerVote: reply.votesByUser["O"] || null,
-    globalVoteLocked: reply.globalVoteLocked,
-    voteLocksByUser: reply.voteLocksByUser,
+    linkId: link.id,
+    linkCreatorId: link.creatorId,
+    governanceMode: link.governanceMode,
+    ownerVote: link.votesByUser["O"] || null,
+    globalVoteLocked: link.globalVoteLocked,
+    voteLocksByUser: link.voteLocksByUser,
   });
 
-  if (reply.governanceMode === GOVERNANCE_AUTHORITATIVE) {
+  if (link.governanceMode === GOVERNANCE_AUTHORITATIVE) {
     const result = {
       allowed: false,
-      reason: "Authoritative replies are not voteable.",
+      reason: "Authoritative links are not voteable.",
     };
 
-    console.log("[GUARD] canVoteReply:deny:authoritative", result);
+    console.log("[GUARD] canVoteLink:deny:authoritative", result);
     return result;
   }
 
-  if (reply.creatorId === userId) {
+  if (link.creatorId === userId) {
     const result = {
       allowed: false,
-      reason: "You cannot vote on your own reply.",
+      reason: "You cannot vote on your own link.",
     };
 
-    console.log("[GUARD] canVoteReply:deny:selfVote", result);
+    console.log("[GUARD] canVoteLink:deny:selfVote", result);
     return result;
   }
 
-  if (reply.globalVoteLocked) {
+  if (link.globalVoteLocked) {
     const result = {
       allowed: false,
-      reason: "This reply is globally vote-locked.",
+      reason: "This link is globally vote-locked.",
     };
 
-    console.log("[GUARD] canVoteReply:deny:globalLock", result);
+    console.log("[GUARD] canVoteLink:deny:globalLock", result);
     return result;
   }
 
-  if (reply.voteLocksByUser?.[userId]) {
+  if (link.voteLocksByUser?.[userId]) {
     const result = {
       allowed: false,
-      reason: "Your voting on this reply is locked.",
+      reason: "Your voting on this link is locked.",
     };
 
-    console.log("[GUARD] canVoteReply:deny:userLock", result);
+    console.log("[GUARD] canVoteLink:deny:userLock", result);
     return result;
   }
 
-  const ownerVote = reply.votesByUser["O"] || null;
+  const ownerVote = link.votesByUser["O"] || null;
   const ownerHasCanonized = ownerVote === VOTE_UP || ownerVote === VOTE_DOWN;
 
   if (userId !== "O" && ownerHasCanonized) {
     const result = {
       allowed: false,
-      reason: "Guests cannot vote after the owner has canonized the reply.",
+      reason: "Guests cannot vote after the owner has canonized the link.",
     };
 
-    console.log("[GUARD] canVoteReply:deny:ownerCanonized", result);
+    console.log("[GUARD] canVoteLink:deny:ownerCanonized", result);
     return result;
   }
 
   const result = { allowed: true };
 
-  console.log("[GUARD] canVoteReply:allow", result);
+  console.log("[GUARD] canVoteLink:allow", result);
   return result;
 }

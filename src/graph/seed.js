@@ -5,7 +5,7 @@ import {
 } from "./constants";
 
 let nodeSeq = 1;
-let replySeq = 1;
+let linkSeq = 1;
 
 export function randomLabel() {
   return faker.word.words({ count: { min: 1, max: 3 } });
@@ -20,11 +20,6 @@ function resolveGovernanceMode(creatorId) {
 export function makeNode(creatorId) {
   const governanceMode = resolveGovernanceMode(creatorId);
 
-  console.log("[SEED] makeNode", {
-    creatorId,
-    governanceMode,
-  });
-
   return {
     id: `n${nodeSeq++}`,
     label: randomLabel(),
@@ -34,12 +29,13 @@ export function makeNode(creatorId) {
   };
 }
 
-export function makeReply(nodeId, creatorId, supportType) {
+export function makeLink(sourceId, targetId, creatorId, supportType) {
   const governanceMode = resolveGovernanceMode(creatorId);
 
-  const reply = {
-    id: `r${replySeq++}`,
-    nodeId,
+  return {
+    id: `l${linkSeq++}`,
+    sourceId,
+    targetId,
     label: randomLabel(),
     creatorId,
     governanceMode,
@@ -48,16 +44,8 @@ export function makeReply(nodeId, creatorId, supportType) {
     voteLocksByUser: {},
     globalVoteLocked: false,
   };
-
-  console.log("[SEED] makeReply", reply);
-
-  return reply;
 }
 
 export function makeInitialNodes() {
-  const nodes = [makeNode("O"), makeNode("G_1"), makeNode("G_2")];
-
-  console.log("[SEED] makeInitialNodes", nodes);
-
-  return nodes;
+  return [makeNode("O"), makeNode("G_1"), makeNode("G_2")];
 }

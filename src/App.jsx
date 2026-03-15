@@ -1,31 +1,169 @@
+import { useMemo, useState } from "react";
 import { useGraphStore } from "./store/graphStore";
 import {
+  formatLinkText,
   formatNodeText,
-  formatReplyText,
+  getLinkCanonicalStatus,
+  getLinkCreationMode,
+  getLinkCreationReason,
+  getLinkVoteControlsMode,
+  getLinkVoteForUser,
+  getNodeById,
   getNodeCanonicalStatus,
   getNodeVoteForUser,
-  getRepliesForNode,
-  getReplyBlockReason,
-  getReplyCanonicalStatus,
-  getReplyControlsMode,
-  getReplyVoteControlsMode,
-  getReplyVoteForUser,
+  getOutgoingLinks,
   getVoteControlsMode,
+  isLinkAuthoritativeByOrigin,
   isNodeAuthoritativeByOrigin,
-  isReplyAuthoritativeByOrigin,
 } from "./graph/selectors";
 import { VOTE_DOWN, VOTE_UP } from "./graph/constants";
 
+function LinkBlock({ link, nodes, userId, deleteLink, toggleLinkUp, toggleLinkDown }) {
+  const sourceNode = getNodeById(nodes, link.sourceId);
+  const targetNode = getNodeById(nodes, link.targetId);
+
+  const linkMyVote = getLinkVoteForUser(link, userId);
+  const linkVoteControlsMode = getLinkVoteControlsMode(link, userId);
+  const linkAuthoritativeByOrigin = isLinkAuthoritativeByOrigin(link);
+  const linkCanonicalStatus = getLinkCanonicalStatus(link);
+  const isOwnLink = link.creatorId === userId;
+
+  return (
+    <div
+      style={{
+        marginTop: 12,
+        padding: 12,
+        border: "1px solid #ececec",
+        borderRadius: 10,
+        background: "#fafafa",
+      }}
+    >
+      <div
+        style={{
+          padding: 8,
+          border: "1px solid #e5e5e5",
+          borderRadius: 8,
+          fontFamily: "monospace",
+          background: "white",
+        }}
+      >
+        {sourceNode ? formatNodeText(sourceNode) : "[missing source node]"}
+      </div>
+
+      <div
+        style={{
+          margin: "8px 0",
+          padding: 8,
+          border: "1px dashed #cfcfcf",
+          borderRadius: 8,
+          fontFamily: "monospace",
+          background: "#f3f3f3",
+        }}
+      >
+        {formatLinkText(link)}
+      </div>
+
+      <div
+        style={{
+          padding: 8,
+          border: "1px solid #e5e5e5",
+          borderRadius: 8,
+          fontFamily: "monospace",
+          background: "white",
+        }}
+      >
+        {targetNode ? formatNodeText(targetNode) : "[missing target node]"}
+      </div>
+
+      {linkVoteControlsMode !== "hidden" ? (
+        <div
+          style={{
+            marginTop: 8,
+            display: "flex",
+            gap: 8,
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
+          <button
+            onClick={() => toggleLinkUp(userId, link.id)}
+            disabled={linkVoteControlsMode === "disabled"}
+            style={{ fontWeight: linkMyVote === VOTE_UP ? "bold" : "normal" }}
+          >
+            up
+          </button>
+
+          <button
+            onClick={() => toggleLinkDown(userId, link.id)}
+            disabled={linkVoteControlsMode === "disabled"}
+            style={{ fontWeight: linkMyVote === VOTE_DOWN ? "bold" : "normal" }}
+          >
+            down
+          </button>
+
+          <span style={{ fontSize: 12, color: "#666" }}>
+            last decision: {linkMyVote}
+            {linkVoteControlsMode === "disabled" ? " • locked" : ""}
+          </span>
+        </div>
+      ) : null}
+
+      <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>
+        {linkAuthoritativeByOrigin
+          ? "authoritative link by origin: voting unavailable"
+          : linkCanonicalStatus === "canonical_true"
+          ? userId === "O"
+            ? "you marked this link as canonical truth"
+            : "canonical truth decided by owner • voting locked"
+          : linkCanonicalStatus === "canonical_false"
+          ? userId === "O"
+            ? "you marked this link as canonical falsehood"
+            : "canonical falsehood decided by owner • voting locked"
+          : isOwnLink
+          ? "own link: you cannot vote on it"
+          : "community link"}
+      </div>
+
+      {isOwnLink ? (
+        <div style={{ marginTop: 8 }}>
+          <button onClick={() => deleteLink(userId, link.id)}>Delete link</button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function UserView({ userId, title }) {
   const nodes = useGraphStore((s) => s.nodes);
-  const replies = useGraphStore((s) => s.replies);
+  const links = useGraphStore((s) => s.links);
   const addNode = useGraphStore((s) => s.addNode);
-  const addReply = useGraphStore((s) => s.addReply);
-  const deleteReply = useGraphStore((s) => s.deleteReply);
+  const addLink = useGraphStore((s) => s.addLink);
+  const deleteLink = useGraphStore((s) => s.deleteLink);
   const toggleUp = useGraphStore((s) => s.toggleUp);
   const toggleDown = useGraphStore((s) => s.toggleDown);
-  const toggleReplyUp = useGraphStore((s) => s.toggleReplyUp);
-  const toggleReplyDown = useGraphStore((s) => s.toggleReplyDown);
+  const toggleLinkUp = useGraphStore((s) => s.toggleLinkUp);
+  const toggleLinkDown = useGraphStore((s) => s.toggleLinkDown);
+
+  const [selectedTargets, setSelectedTargets] = useState({});
+
+  const targetOptionsBySource = useMemo(() => {
+    const map = {};
+
+    for (const node of nodes) {
+      const usedTargets = new Set(
+        links
+          .filter((link) => link.sourceId === node.id)
+          .map((link) => link.targetId)
+      );
+
+      map[node.id] = nodes.filter(
+        (candidate) =>
+          candidate.id !== node.id && !usedTargets.has(candidate.id)
+      );
+    }
+
+    return map;
+  }, [nodes, links]);
 
   return (
     <div
@@ -54,12 +192,14 @@ function UserView({ userId, title }) {
         {nodes.map((node) => {
           const myVote = getNodeVoteForUser(node, userId);
           const voteControlsMode = getVoteControlsMode(node, userId);
-          const replyControlsMode = getReplyControlsMode(node, userId);
-          const replyReason = getReplyBlockReason(node, userId);
+          const linkCreationMode = getLinkCreationMode(node, userId);
+          const linkReason = getLinkCreationReason(node, userId);
           const authoritativeByOrigin = isNodeAuthoritativeByOrigin(node);
           const canonicalStatus = getNodeCanonicalStatus(node);
           const isOwnNode = node.creatorId === userId;
-          const nodeReplies = getRepliesForNode(replies, node.id);
+          const outgoingLinks = getOutgoingLinks(links, node.id);
+          const targetOptions = targetOptionsBySource[node.id] || [];
+          const selectedTargetId = selectedTargets[node.id] || targetOptions[0]?.id || "";
 
           return (
             <div
@@ -126,121 +266,68 @@ function UserView({ userId, title }) {
                 style={{
                   marginTop: 12,
                   display: "flex",
-                  alignItems: "center",
                   gap: 8,
                   flexWrap: "wrap",
+                  alignItems: "center",
                 }}
               >
-                <button
-                  onClick={() => addReply(userId, node.id)}
-                  disabled={replyControlsMode === "disabled"}
+                <select
+                  value={selectedTargetId}
+                  onChange={(e) =>
+                    setSelectedTargets((prev) => ({
+                      ...prev,
+                      [node.id]: e.target.value,
+                    }))
+                  }
+                  disabled={targetOptions.length === 0}
                 >
-                  Add reply
+                  {targetOptions.length === 0 ? (
+                    <option value="">No target available</option>
+                  ) : (
+                    targetOptions.map((target) => (
+                      <option key={target.id} value={target.id}>
+                        {target.label} ({target.id})
+                      </option>
+                    ))
+                  )}
+                </select>
+
+                <button
+                  disabled={
+                    linkCreationMode === "disabled" ||
+                    !selectedTargetId ||
+                    targetOptions.length === 0
+                  }
+                  onClick={() => {
+                    addLink(userId, node.id, selectedTargetId);
+                    setSelectedTargets((prev) => {
+                      const next = { ...prev };
+                      delete next[node.id];
+                      return next;
+                    });
+                  }}
+                >
+                  Add link
                 </button>
 
                 <span style={{ fontSize: 12, color: "#666" }}>
-                  {replyReason}
+                  {linkReason}
                 </span>
               </div>
 
-              {nodeReplies.length > 0 ? (
-                <div
-                  style={{
-                    marginTop: 12,
-                    paddingLeft: 12,
-                    borderLeft: "2px solid #ececec",
-                    display: "grid",
-                    gap: 8,
-                  }}
-                >
-                  {nodeReplies.map((reply) => {
-                    const isOwnReply = reply.creatorId === userId;
-                    const replyMyVote = getReplyVoteForUser(reply, userId);
-                    const replyVoteControlsMode = getReplyVoteControlsMode(reply, userId);
-                    const replyAuthoritativeByOrigin = isReplyAuthoritativeByOrigin(reply);
-                    const replyCanonicalStatus = getReplyCanonicalStatus(reply);
-
-                    return (
-                      <div
-                        key={reply.id}
-                        style={{
-                          border: "1px solid #f0f0f0",
-                          borderRadius: 8,
-                          padding: 8,
-                          background: "#fafafa",
-                        }}
-                      >
-                        <div style={{ fontFamily: "monospace" }}>
-                          {formatReplyText(reply)}
-                        </div>
-
-                        {replyVoteControlsMode !== "hidden" ? (
-                          <div
-                            style={{
-                              marginTop: 8,
-                              display: "flex",
-                              gap: 8,
-                              flexWrap: "wrap",
-                              alignItems: "center",
-                            }}
-                          >
-                            <button
-                              onClick={() => toggleReplyUp(userId, reply.id)}
-                              disabled={replyVoteControlsMode === "disabled"}
-                              style={{
-                                fontWeight:
-                                  replyMyVote === VOTE_UP ? "bold" : "normal",
-                              }}
-                            >
-                              up
-                            </button>
-
-                            <button
-                              onClick={() => toggleReplyDown(userId, reply.id)}
-                              disabled={replyVoteControlsMode === "disabled"}
-                              style={{
-                                fontWeight:
-                                  replyMyVote === VOTE_DOWN ? "bold" : "normal",
-                              }}
-                            >
-                              down
-                            </button>
-
-                            <span style={{ fontSize: 12, color: "#666" }}>
-                              last decision: {replyMyVote}
-                              {replyVoteControlsMode === "disabled"
-                                ? " • locked"
-                                : ""}
-                            </span>
-                          </div>
-                        ) : null}
-
-                        <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>
-                          {replyAuthoritativeByOrigin
-                            ? "authoritative reply by origin: voting unavailable"
-                            : replyCanonicalStatus === "canonical_true"
-                            ? userId === "O"
-                              ? "you marked this reply as canonical truth"
-                              : "canonical truth decided by owner • voting locked"
-                            : replyCanonicalStatus === "canonical_false"
-                            ? userId === "O"
-                              ? "you marked this reply as canonical falsehood"
-                              : "canonical falsehood decided by owner • voting locked"
-                            : isOwnReply
-                            ? "own reply: you cannot vote on it"
-                            : "community reply"}
-                        </div>
-
-                        {isOwnReply ? (
-                          <div style={{ marginTop: 8 }}>
-                            <button onClick={() => deleteReply(userId, reply.id)}>
-                              Delete reply
-                            </button>
-                          </div>
-                        ) : null}
-                      </div>
-                    );
-                  })}
+              {outgoingLinks.length > 0 ? (
+                <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+                  {outgoingLinks.map((link) => (
+                    <LinkBlock
+                      key={link.id}
+                      link={link}
+                      nodes={nodes}
+                      userId={userId}
+                      deleteLink={deleteLink}
+                      toggleLinkUp={toggleLinkUp}
+                      toggleLinkDown={toggleLinkDown}
+                    />
+                  ))}
                 </div>
               ) : null}
             </div>

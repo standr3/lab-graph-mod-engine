@@ -1,38 +1,34 @@
 import { create } from "zustand";
 import {
+  ACTION_ADD_LINK,
   ACTION_ADD_NODE,
-  ACTION_ADD_REPLY,
-  ACTION_DELETE_REPLY,
+  ACTION_DELETE_LINK,
   ACTION_TOGGLE_DOWN,
-  ACTION_TOGGLE_REPLY_DOWN,
-  ACTION_TOGGLE_REPLY_UP,
+  ACTION_TOGGLE_LINK_DOWN,
+  ACTION_TOGGLE_LINK_UP,
   ACTION_TOGGLE_UP,
   USERS,
 } from "../graph/constants";
-import { makeInitialNodes } from "../graph/seed";
 import { applyAction } from "../graph/engine";
+import { makeInitialNodes } from "../graph/seed";
 
 export const useGraphStore = create((set, get) => ({
   users: USERS,
   nodes: makeInitialNodes(),
-  replies: [],
+  links: [],
   eventLog: [],
 
   dispatch(action) {
-    console.log("[STORE] dispatch:start", action);
-
     const state = {
       nodes: get().nodes,
-      replies: get().replies,
+      links: get().links,
     };
 
     const result = applyAction(state, action);
 
-    console.log("[STORE] dispatch:result", result);
-
     set((current) => ({
       nodes: result.nextState.nodes,
-      replies: result.nextState.replies ?? current.replies,
+      links: result.nextState.links ?? current.links,
       eventLog: [result.logMessage, ...current.eventLog],
     }));
 
@@ -46,19 +42,20 @@ export const useGraphStore = create((set, get) => ({
     });
   },
 
-  addReply(userId, nodeId) {
+  addLink(userId, sourceId, targetId) {
     return get().dispatch({
-      type: ACTION_ADD_REPLY,
+      type: ACTION_ADD_LINK,
       userId,
-      nodeId,
+      sourceId,
+      targetId,
     });
   },
 
-  deleteReply(userId, replyId) {
+  deleteLink(userId, linkId) {
     return get().dispatch({
-      type: ACTION_DELETE_REPLY,
+      type: ACTION_DELETE_LINK,
       userId,
-      replyId,
+      linkId,
     });
   },
 
@@ -78,19 +75,19 @@ export const useGraphStore = create((set, get) => ({
     });
   },
 
-  toggleReplyUp(userId, replyId) {
+  toggleLinkUp(userId, linkId) {
     return get().dispatch({
-      type: ACTION_TOGGLE_REPLY_UP,
+      type: ACTION_TOGGLE_LINK_UP,
       userId,
-      replyId,
+      linkId,
     });
   },
 
-  toggleReplyDown(userId, replyId) {
+  toggleLinkDown(userId, linkId) {
     return get().dispatch({
-      type: ACTION_TOGGLE_REPLY_DOWN,
+      type: ACTION_TOGGLE_LINK_DOWN,
       userId,
-      replyId,
+      linkId,
     });
   },
 }));

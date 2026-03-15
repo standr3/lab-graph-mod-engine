@@ -6,468 +6,142 @@ import {
 } from "./constants";
 
 export function getVoteForUser(entity, userId) {
-  const vote = entity.votesByUser[userId] || VOTE_NONE;
-
-  console.log("[SELECTOR] getVoteForUser", {
-    entityId: entity.id,
-    userId,
-    vote,
-  });
-
-  return vote;
+  return entity.votesByUser[userId] || VOTE_NONE;
 }
 
 export function getNodeVoteForUser(node, userId) {
   return getVoteForUser(node, userId);
 }
 
-export function getReplyVoteForUser(reply, userId) {
-  return getVoteForUser(reply, userId);
+export function getLinkVoteForUser(link, userId) {
+  return getVoteForUser(link, userId);
 }
 
 export function getUpList(entity) {
-  const result = Object.entries(entity.votesByUser)
+  return Object.entries(entity.votesByUser)
     .filter(([, vote]) => vote === VOTE_UP)
     .map(([userId]) => userId);
-
-  console.log("[SELECTOR] getUpList", {
-    entityId: entity.id,
-    result,
-  });
-
-  return result;
 }
 
 export function getDownList(entity) {
-  const result = Object.entries(entity.votesByUser)
+  return Object.entries(entity.votesByUser)
     .filter(([, vote]) => vote === VOTE_DOWN)
     .map(([userId]) => userId);
-
-  console.log("[SELECTOR] getDownList", {
-    entityId: entity.id,
-    result,
-  });
-
-  return result;
 }
 
 export function formatNodeText(node) {
   const upList = getUpList(node);
   const downList = getDownList(node);
 
-  const formatted = `[${node.label} : ${node.creatorId} + (${upList.join(", ")}) - (${downList.join(", ")})]`;
-
-  console.log("[SELECTOR] formatNodeText", {
-    nodeId: node.id,
-    formatted,
-  });
-
-  return formatted;
+  return `[${node.label} : ${node.creatorId} + (${upList.join(", ")}) - (${downList.join(", ")})]`;
 }
 
-export function formatReplyText(reply) {
-  const upList = getUpList(reply);
-  const downList = getDownList(reply);
+export function formatLinkText(link) {
+  const upList = getUpList(link);
+  const downList = getDownList(link);
 
-  const formatted = `[${reply.label} : ${reply.creatorId} + (${upList.join(", ")}) - (${downList.join(", ")}) | support:${reply.supportType}]`;
-
-  console.log("[SELECTOR] formatReplyText", {
-    replyId: reply.id,
-    formatted,
-  });
-
-  return formatted;
+  return `[${link.label} : ${link.creatorId} + (${upList.join(", ")}) - (${downList.join(", ")}) | support:${link.supportType}]`;
 }
 
-export function getRepliesForNode(replies, nodeId) {
-  const result = replies.filter((reply) => reply.nodeId === nodeId);
+export function getOutgoingLinks(links, sourceId) {
+  return links.filter((link) => link.sourceId === sourceId);
+}
 
-  console.log("[SELECTOR] getRepliesForNode", {
-    nodeId,
-    replyIds: result.map((reply) => reply.id),
-  });
-
-  return result;
+export function getNodeById(nodes, nodeId) {
+  return nodes.find((node) => node.id === nodeId) || null;
 }
 
 export function isEntityAuthoritativeByOrigin(entity) {
-  const result = entity.governanceMode === GOVERNANCE_AUTHORITATIVE;
-
-  console.log("[SELECTOR] isEntityAuthoritativeByOrigin", {
-    entityId: entity.id,
-    result,
-  });
-
-  return result;
+  return entity.governanceMode === GOVERNANCE_AUTHORITATIVE;
 }
 
 export function isNodeAuthoritativeByOrigin(node) {
   return isEntityAuthoritativeByOrigin(node);
 }
 
-export function isReplyAuthoritativeByOrigin(reply) {
-  return isEntityAuthoritativeByOrigin(reply);
+export function isLinkAuthoritativeByOrigin(link) {
+  return isEntityAuthoritativeByOrigin(link);
 }
 
 export function getOwnerCanonicalVote(entity) {
-  const result = entity.votesByUser["O"] || null;
-
-  console.log("[SELECTOR] getOwnerCanonicalVote", {
-    entityId: entity.id,
-    result,
-  });
-
-  return result;
+  return entity.votesByUser["O"] || null;
 }
 
 export function isEntityCanonizedByOwner(entity) {
   const ownerVote = getOwnerCanonicalVote(entity);
-  const result = ownerVote === VOTE_UP || ownerVote === VOTE_DOWN;
-
-  console.log("[SELECTOR] isEntityCanonizedByOwner", {
-    entityId: entity.id,
-    ownerVote,
-    result,
-  });
-
-  return result;
+  return ownerVote === VOTE_UP || ownerVote === VOTE_DOWN;
 }
 
 export function getEntityCanonicalStatus(entity) {
-  if (isEntityAuthoritativeByOrigin(entity)) {
-    const result = "canonical_true";
-
-    console.log("[SELECTOR] getEntityCanonicalStatus", {
-      entityId: entity.id,
-      result,
-    });
-
-    return result;
-  }
+  if (isEntityAuthoritativeByOrigin(entity)) return "canonical_true";
 
   const ownerVote = getOwnerCanonicalVote(entity);
+  if (ownerVote === VOTE_UP) return "canonical_true";
+  if (ownerVote === VOTE_DOWN) return "canonical_false";
 
-  if (ownerVote === VOTE_UP) {
-    const result = "canonical_true";
-
-    console.log("[SELECTOR] getEntityCanonicalStatus", {
-      entityId: entity.id,
-      result,
-    });
-
-    return result;
-  }
-
-  if (ownerVote === VOTE_DOWN) {
-    const result = "canonical_false";
-
-    console.log("[SELECTOR] getEntityCanonicalStatus", {
-      entityId: entity.id,
-      result,
-    });
-
-    return result;
-  }
-
-  const result = "none";
-
-  console.log("[SELECTOR] getEntityCanonicalStatus", {
-    entityId: entity.id,
-    result,
-  });
-
-  return result;
+  return "none";
 }
 
 export function getNodeCanonicalStatus(node) {
   return getEntityCanonicalStatus(node);
 }
 
-export function getReplyCanonicalStatus(reply) {
-  return getEntityCanonicalStatus(reply);
+export function getLinkCanonicalStatus(link) {
+  return getEntityCanonicalStatus(link);
 }
 
 export function resolveNodeStance(node, userId) {
-  console.log("[STANCE] resolveNodeStance:start", {
-    nodeId: node.id,
-    userId,
-    creatorId: node.creatorId,
-    governanceMode: node.governanceMode,
-    ownerVote: node.votesByUser["O"] || null,
-    userVote: node.votesByUser[userId] || null,
-  });
-
-  if (isEntityAuthoritativeByOrigin(node)) {
-    const result = "canonical_true";
-
-    console.log("[STANCE] resolveNodeStance:authoritativeByOrigin", {
-      nodeId: node.id,
-      userId,
-      result,
-    });
-
-    return result;
-  }
+  if (isEntityAuthoritativeByOrigin(node)) return "canonical_true";
 
   const ownerVote = getOwnerCanonicalVote(node);
+  if (ownerVote === VOTE_UP) return "canonical_true";
+  if (ownerVote === VOTE_DOWN) return "canonical_false";
 
-  if (ownerVote === VOTE_UP) {
-    const result = "canonical_true";
-
-    console.log("[STANCE] resolveNodeStance:ownerUp", {
-      nodeId: node.id,
-      userId,
-      result,
-    });
-
-    return result;
-  }
-
-  if (ownerVote === VOTE_DOWN) {
-    const result = "canonical_false";
-
-    console.log("[STANCE] resolveNodeStance:ownerDown", {
-      nodeId: node.id,
-      userId,
-      result,
-    });
-
-    return result;
-  }
-
-  if (node.creatorId === userId) {
-    const result = "local_true";
-
-    console.log("[STANCE] resolveNodeStance:creatorPresumption", {
-      nodeId: node.id,
-      userId,
-      result,
-    });
-
-    return result;
-  }
+  if (node.creatorId === userId) return "local_true";
 
   const userVote = getVoteForUser(node, userId);
+  if (userVote === VOTE_UP) return "local_true";
+  if (userVote === VOTE_DOWN) return "local_false";
 
-  if (userVote === VOTE_UP) {
-    const result = "local_true";
-
-    console.log("[STANCE] resolveNodeStance:userUp", {
-      nodeId: node.id,
-      userId,
-      result,
-    });
-
-    return result;
-  }
-
-  if (userVote === VOTE_DOWN) {
-    const result = "local_false";
-
-    console.log("[STANCE] resolveNodeStance:userDown", {
-      nodeId: node.id,
-      userId,
-      result,
-    });
-
-    return result;
-  }
-
-  const result = "undecided";
-
-  console.log("[STANCE] resolveNodeStance:undecided", {
-    nodeId: node.id,
-    userId,
-    result,
-  });
-
-  return result;
+  return "undecided";
 }
 
-export function canAddReply(node, userId) {
-  const stance = resolveNodeStance(node, userId);
-  const result = stance === "canonical_true" || stance === "local_true";
-
-  console.log("[POLICY] canAddReply", {
-    nodeId: node.id,
-    userId,
-    stance,
-    result,
-  });
-
-  return result;
+export function canAddLink(sourceNode, userId) {
+  const stance = resolveNodeStance(sourceNode, userId);
+  return stance === "canonical_true" || stance === "local_true";
 }
 
-export function getReplyControlsMode(node, userId) {
-  const allowed = canAddReply(node, userId);
-  const result = allowed ? "enabled" : "disabled";
-
-  console.log("[POLICY] getReplyControlsMode", {
-    nodeId: node.id,
-    userId,
-    result,
-  });
-
-  return result;
+export function getLinkCreationMode(sourceNode, userId) {
+  return canAddLink(sourceNode, userId) ? "enabled" : "disabled";
 }
 
-export function getReplyBlockReason(node, userId) {
-  const stance = resolveNodeStance(node, userId);
+export function getLinkCreationReason(sourceNode, userId) {
+  const stance = resolveNodeStance(sourceNode, userId);
 
-  let result = "reply allowed";
+  if (stance === "canonical_true") return "link allowed: canonical truth";
+  if (stance === "canonical_false") return "link blocked: owner marked source node as false";
+  if (stance === "local_true") return "link allowed: you support this source node";
+  if (stance === "local_false") return "link blocked: you marked source node as false";
 
-  if (stance === "canonical_true") {
-    result = "reply allowed: canonical truth";
-  } else if (stance === "canonical_false") {
-    result = "reply blocked: owner marked node as false";
-  } else if (stance === "local_true") {
-    result = "reply allowed: you support this node";
-  } else if (stance === "local_false") {
-    result = "reply blocked: you marked this node as false";
-  } else if (stance === "undecided") {
-    result = "reply blocked: endorse this node first";
-  }
-
-  console.log("[POLICY] getReplyBlockReason", {
-    nodeId: node.id,
-    userId,
-    stance,
-    result,
-  });
-
-  return result;
+  return "link blocked: endorse source node first";
 }
 
 export function getEntityVoteControlsMode(entity, userId) {
-  if (isEntityAuthoritativeByOrigin(entity)) {
-    const result = "hidden";
-
-    console.log("[SELECTOR] getEntityVoteControlsMode", {
-      entityId: entity.id,
-      userId,
-      result,
-      reason: "authoritative_by_origin",
-    });
-
-    return result;
-  }
-
-  if (entity.creatorId === userId) {
-    const result = "hidden";
-
-    console.log("[SELECTOR] getEntityVoteControlsMode", {
-      entityId: entity.id,
-      userId,
-      result,
-      reason: "own_entity",
-    });
-
-    return result;
-  }
-
-  if (userId !== "O" && isEntityCanonizedByOwner(entity)) {
-    const result = "disabled";
-
-    console.log("[SELECTOR] getEntityVoteControlsMode", {
-      entityId: entity.id,
-      userId,
-      result,
-      reason: "canonized_by_owner",
-    });
-
-    return result;
-  }
-
-  const result = "enabled";
-
-  console.log("[SELECTOR] getEntityVoteControlsMode", {
-    entityId: entity.id,
-    userId,
-    result,
-    reason: "default",
-  });
-
-  return result;
+  if (isEntityAuthoritativeByOrigin(entity)) return "hidden";
+  if (entity.creatorId === userId) return "hidden";
+  if (userId !== "O" && isEntityCanonizedByOwner(entity)) return "disabled";
+  return "enabled";
 }
 
 export function getVoteControlsMode(node, userId) {
   return getEntityVoteControlsMode(node, userId);
 }
 
-export function getReplyVoteControlsMode(reply, userId) {
-  if (isEntityAuthoritativeByOrigin(reply)) {
-    const result = "hidden";
-
-    console.log("[SELECTOR] getReplyVoteControlsMode", {
-      replyId: reply.id,
-      userId,
-      result,
-      reason: "authoritative_by_origin",
-    });
-
-    return result;
-  }
-
-  if (reply.creatorId === userId) {
-    const result = "hidden";
-
-    console.log("[SELECTOR] getReplyVoteControlsMode", {
-      replyId: reply.id,
-      userId,
-      result,
-      reason: "own_reply",
-    });
-
-    return result;
-  }
-
-  if (reply.globalVoteLocked) {
-    const result = "disabled";
-
-    console.log("[SELECTOR] getReplyVoteControlsMode", {
-      replyId: reply.id,
-      userId,
-      result,
-      reason: "global_vote_locked",
-    });
-
-    return result;
-  }
-
-  if (reply.voteLocksByUser?.[userId]) {
-    const result = "disabled";
-
-    console.log("[SELECTOR] getReplyVoteControlsMode", {
-      replyId: reply.id,
-      userId,
-      result,
-      reason: "user_vote_locked",
-    });
-
-    return result;
-  }
-
-  if (userId !== "O" && isEntityCanonizedByOwner(reply)) {
-    const result = "disabled";
-
-    console.log("[SELECTOR] getReplyVoteControlsMode", {
-      replyId: reply.id,
-      userId,
-      result,
-      reason: "canonized_by_owner",
-    });
-
-    return result;
-  }
-
-  const result = "enabled";
-
-  console.log("[SELECTOR] getReplyVoteControlsMode", {
-    replyId: reply.id,
-    userId,
-    result,
-    reason: "default",
-  });
-
-  return result;
+export function getLinkVoteControlsMode(link, userId) {
+  if (isEntityAuthoritativeByOrigin(link)) return "hidden";
+  if (link.creatorId === userId) return "hidden";
+  if (link.globalVoteLocked) return "disabled";
+  if (link.voteLocksByUser?.[userId]) return "disabled";
+  if (userId !== "O" && isEntityCanonizedByOwner(link)) return "disabled";
+  return "enabled";
 }

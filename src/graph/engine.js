@@ -1,30 +1,23 @@
 import {
   ACTION_ADD_NODE,
-  ACTION_ADD_REPLY,
-  ACTION_DELETE_REPLY,
+  ACTION_ADD_LINK,
+  ACTION_DELETE_LINK,
   ACTION_TOGGLE_DOWN,
-  ACTION_TOGGLE_REPLY_DOWN,
-  ACTION_TOGGLE_REPLY_UP,
+  ACTION_TOGGLE_LINK_DOWN,
+  ACTION_TOGGLE_LINK_UP,
   ACTION_TOGGLE_UP,
-  REPLY_SUPPORT_CANONICAL,
-  REPLY_SUPPORT_LOCAL,
+  LINK_SUPPORT_CANONICAL,
+  LINK_SUPPORT_LOCAL,
   VOTE_NONE,
   VOTE_DOWN,
   VOTE_UP,
 } from "./constants";
-import { makeNode, makeReply } from "./seed";
-import { canVoteNode, canVoteReply } from "./guards";
+import { makeLink, makeNode } from "./seed";
+import { canVoteLink, canVoteNode } from "./guards";
 import { transitionVote } from "./voteStateMachine";
-import { canAddReply, resolveNodeStance } from "./selectors";
+import { canAddLink, resolveNodeStance } from "./selectors";
 
 function updateEntityVote(entity, userId, nextVote) {
-  console.log("[ENGINE] updateEntityVote:start", {
-    entityId: entity.id,
-    userId,
-    nextVote,
-    beforeVotesByUser: entity.votesByUser,
-  });
-
   const nextVotesByUser = { ...entity.votesByUser };
 
   if (nextVote === VOTE_NONE) {
@@ -33,164 +26,101 @@ function updateEntityVote(entity, userId, nextVote) {
     nextVotesByUser[userId] = nextVote;
   }
 
-  const updatedEntity = {
+  return {
     ...entity,
     votesByUser: nextVotesByUser,
   };
-
-  console.log("[ENGINE] updateEntityVote:end", {
-    entityId: entity.id,
-    afterVotesByUser: updatedEntity.votesByUser,
-  });
-
-  return updatedEntity;
 }
 
-function resolveReplySupportType(node, userId) {
+function resolveLinkSupportType(node, userId) {
   const stance = resolveNodeStance(node, userId);
-
-  const supportType =
-    stance === "canonical_true"
-      ? REPLY_SUPPORT_CANONICAL
-      : REPLY_SUPPORT_LOCAL;
-
-  console.log("[ENGINE] resolveReplySupportType", {
-    nodeId: node.id,
-    userId,
-    stance,
-    supportType,
-  });
-
-  return supportType;
+  return stance === "canonical_true"
+    ? LINK_SUPPORT_CANONICAL
+    : LINK_SUPPORT_LOCAL;
 }
 
 function isDownEvent({ currentVote, nextVote }) {
-  const result = currentVote !== VOTE_DOWN && nextVote === VOTE_DOWN;
-
-  console.log("[ENGINE] isDownEvent", {
-    currentVote,
-    nextVote,
-    result,
-  });
-
-  return result;
+  return currentVote !== VOTE_DOWN && nextVote === VOTE_DOWN;
 }
 
-function propagateDownToReplies({ actorUserId, updatedNode, replies }) {
-  console.log("[ENGINE] propagateDownToReplies:start", {
-    actorUserId,
-    nodeId: updatedNode.id,
-  });
-
+function propagateDownToLinks({ actorUserId, updatedNode, links }) {
   const cascadeMessages = [];
 
-  const nextReplies = replies.map((reply) => {
-    if (reply.nodeId !== updatedNode.id) return reply;
+  const nextLinks = links.map((link) => {
+    if (link.sourceId !== updatedNode.id) return link;
 
-    let nextReply = reply;
+    let nextLink = link;
 
-    const currentActorVote = nextReply.votesByUser[actorUserId] || VOTE_NONE;
+    const currentActorVote = nextLink.votesByUser[actorUserId] || VOTE_NONE;
     if (currentActorVote !== VOTE_DOWN) {
-      nextReply = updateEntityVote(nextReply, actorUserId, VOTE_DOWN);
+      nextLink = updateEntityVote(nextLink, actorUserId, VOTE_DOWN);
     }
 
     if (actorUserId === "O") {
-      if (!nextReply.globalVoteLocked) {
-        nextReply = {
-          ...nextReply,
+      if (!nextLink.globalVoteLocked) {
+        nextLink = {
+          ...nextLink,
           globalVoteLocked: true,
         };
       }
 
       cascadeMessages.push(
-        `Cascade: owner down propagated to reply ${nextReply.id} from node ${updatedNode.id} and globally locked voting`
+        `Cascade: owner down propagated to link ${nextLink.id} from node ${updatedNode.id} and globally locked voting`
       );
     } else {
-      const alreadyLockedForUser = !!nextReply.voteLocksByUser?.[actorUserId];
+      const alreadyLockedForUser = !!nextLink.voteLocksByUser?.[actorUserId];
 
       if (!alreadyLockedForUser) {
-        nextReply = {
-          ...nextReply,
+        nextLink = {
+          ...nextLink,
           voteLocksByUser: {
-            ...(nextReply.voteLocksByUser || {}),
+            ...(nextLink.voteLocksByUser || {}),
             [actorUserId]: true,
           },
         };
       }
 
       cascadeMessages.push(
-        `Cascade: down from ${actorUserId} propagated to reply ${nextReply.id} from node ${updatedNode.id} and locked voting for that user`
+        `Cascade: down from ${actorUserId} propagated to link ${nextLink.id} from node ${updatedNode.id} and locked voting for that user`
       );
     }
 
-    return nextReply;
+    return nextLink;
   });
 
-  const result = {
-    nextReplies,
+  return {
+    nextLinks,
     cascadeMessages,
   };
-
-  console.log("[ENGINE] propagateDownToReplies:end", result);
-
-  return result;
 }
 
-function planReplyRevalidationCascade({
-  originalNode,
+function planLinkRevalidationCascade({
   updatedNode,
-  replies,
+  links,
 }) {
-  console.log("[ENGINE] planReplyRevalidationCascade:start", {
-    nodeId: originalNode.id,
-    originalVotesByUser: originalNode.votesByUser,
-    updatedVotesByUser: updatedNode.votesByUser,
-  });
+  const outgoingLinks = links.filter((link) => link.sourceId === updatedNode.id);
 
-  const nodeReplies = replies.filter((reply) => reply.nodeId === updatedNode.id);
-
-  const repliesToDelete = [];
+  const linksToDelete = [];
   const cascadeMessages = [];
 
-  for (const reply of nodeReplies) {
-    const replyStillValid = canAddReply(updatedNode, reply.creatorId);
+  for (const link of outgoingLinks) {
+    const linkStillValid = canAddLink(updatedNode, link.creatorId);
 
-    console.log("[ENGINE] planReplyRevalidationCascade:replyCheck", {
-      replyId: reply.id,
-      nodeId: updatedNode.id,
-      replyCreatorId: reply.creatorId,
-      supportType: reply.supportType,
-      replyStillValid,
-      stanceAfterUpdate: resolveNodeStance(updatedNode, reply.creatorId),
-    });
-
-    if (!replyStillValid) {
-      repliesToDelete.push(reply);
+    if (!linkStillValid) {
+      linksToDelete.push(link);
       cascadeMessages.push(
-        `Cascade: deleted reply ${reply.id} because it no longer has valid support on node ${updatedNode.id}`
+        `Cascade: deleted link ${link.id} because it no longer has valid support on source node ${updatedNode.id}`
       );
     }
   }
 
-  const result = {
-    repliesToDelete,
+  return {
+    linksToDelete,
     cascadeMessages,
   };
-
-  console.log("[ENGINE] planReplyRevalidationCascade:end", {
-    nodeId: updatedNode.id,
-    replyIdsToDelete: repliesToDelete.map((reply) => reply.id),
-  });
-
-  return result;
 }
 
 export function applyAction(state, action) {
-  console.log("[ENGINE] applyAction:start", {
-    action,
-    stateSnapshot: state,
-  });
-
   if (action.type === ACTION_ADD_NODE) {
     const newNode = makeNode(action.userId);
 
@@ -204,58 +134,93 @@ export function applyAction(state, action) {
     };
   }
 
-  if (action.type === ACTION_ADD_REPLY) {
-    const parentNode = state.nodes.find((node) => node.id === action.nodeId);
+  if (action.type === ACTION_ADD_LINK) {
+    const sourceNode = state.nodes.find((node) => node.id === action.sourceId);
+    const targetNode = state.nodes.find((node) => node.id === action.targetId);
 
-    if (!parentNode) {
+    if (!sourceNode) {
       return {
         allowed: false,
         nextState: state,
-        logMessage: `Cannot add reply: node ${action.nodeId} not found`,
+        logMessage: `Cannot add link: source node ${action.sourceId} not found`,
       };
     }
 
-    const supportType = resolveReplySupportType(parentNode, action.userId);
-    const newReply = makeReply(action.nodeId, action.userId, supportType);
+    if (!targetNode) {
+      return {
+        allowed: false,
+        nextState: state,
+        logMessage: `Cannot add link: target node ${action.targetId} not found`,
+      };
+    }
+
+    if (action.sourceId === action.targetId) {
+      return {
+        allowed: false,
+        nextState: state,
+        logMessage: `Cannot add link: source and target must be different`,
+      };
+    }
+
+    const alreadyExists = state.links.some(
+      (link) =>
+        link.sourceId === action.sourceId && link.targetId === action.targetId
+    );
+
+    if (alreadyExists) {
+      return {
+        allowed: false,
+        nextState: state,
+        logMessage: `Cannot add link: unique directional link already exists from ${action.sourceId} to ${action.targetId}`,
+      };
+    }
+
+    const supportType = resolveLinkSupportType(sourceNode, action.userId);
+    const newLink = makeLink(
+      action.sourceId,
+      action.targetId,
+      action.userId,
+      supportType
+    );
 
     return {
       allowed: true,
       nextState: {
         ...state,
-        replies: [newReply, ...state.replies],
+        links: [newLink, ...state.links],
       },
-      logMessage: `User ${action.userId} added reply ${newReply.id} to node ${action.nodeId} with support ${supportType}`,
+      logMessage: `User ${action.userId} added link ${newLink.id} from ${action.sourceId} to ${action.targetId} with support ${supportType}`,
     };
   }
 
-  if (action.type === ACTION_DELETE_REPLY) {
-    const reply = state.replies.find((item) => item.id === action.replyId);
+  if (action.type === ACTION_DELETE_LINK) {
+    const link = state.links.find((item) => item.id === action.linkId);
 
-    if (!reply) {
+    if (!link) {
       return {
         allowed: false,
         nextState: state,
-        logMessage: `Reply ${action.replyId} not found`,
+        logMessage: `Link ${action.linkId} not found`,
       };
     }
 
-    if (reply.creatorId !== action.userId) {
+    if (link.creatorId !== action.userId) {
       return {
         allowed: false,
         nextState: state,
-        logMessage: `User ${action.userId} cannot delete reply ${reply.id} because they are not the creator`,
+        logMessage: `User ${action.userId} cannot delete link ${link.id} because they are not the creator`,
       };
     }
 
-    const nextReplies = state.replies.filter((item) => item.id !== reply.id);
+    const nextLinks = state.links.filter((item) => item.id !== link.id);
 
     return {
       allowed: true,
       nextState: {
         ...state,
-        replies: nextReplies,
+        links: nextLinks,
       },
-      logMessage: `User ${action.userId} deleted reply ${reply.id}`,
+      logMessage: `User ${action.userId} deleted link ${link.id}`,
     };
   }
 
@@ -299,34 +264,30 @@ export function applyAction(state, action) {
 
     const updatedNode = updatedNodes.find((item) => item.id === node.id);
 
-    const downEvent = isDownEvent({
-      currentVote,
-      nextVote,
-    });
+    const downEvent = isDownEvent({ currentVote, nextVote });
 
-    let nextReplies = state.replies;
+    let nextLinks = state.links;
     let cascadeMessages = [];
 
     if (downEvent) {
-      const propagationResult = propagateDownToReplies({
+      const propagationResult = propagateDownToLinks({
         actorUserId: action.userId,
         updatedNode,
-        replies: state.replies,
+        links: state.links,
       });
 
-      nextReplies = propagationResult.nextReplies;
+      nextLinks = propagationResult.nextLinks;
       cascadeMessages = propagationResult.cascadeMessages;
     } else {
-      const cascadePlan = planReplyRevalidationCascade({
-        originalNode: node,
+      const cascadePlan = planLinkRevalidationCascade({
         updatedNode,
-        replies: state.replies,
+        links: state.links,
       });
 
-      nextReplies = state.replies.filter(
-        (reply) =>
-          !cascadePlan.repliesToDelete.some(
-            (replyToDelete) => replyToDelete.id === reply.id
+      nextLinks = state.links.filter(
+        (link) =>
+          !cascadePlan.linksToDelete.some(
+            (linkToDelete) => linkToDelete.id === link.id
           )
       );
 
@@ -343,47 +304,47 @@ export function applyAction(state, action) {
       nextState: {
         ...state,
         nodes: updatedNodes,
-        replies: nextReplies,
+        links: nextLinks,
       },
       logMessage: logParts.join(" | "),
     };
   }
 
   if (
-    action.type === ACTION_TOGGLE_REPLY_UP ||
-    action.type === ACTION_TOGGLE_REPLY_DOWN
+    action.type === ACTION_TOGGLE_LINK_UP ||
+    action.type === ACTION_TOGGLE_LINK_DOWN
   ) {
-    const reply = state.replies.find((item) => item.id === action.replyId);
+    const link = state.links.find((item) => item.id === action.linkId);
 
-    if (!reply) {
+    if (!link) {
       return {
         allowed: false,
         nextState: state,
-        logMessage: `Reply ${action.replyId} not found`,
+        logMessage: `Link ${action.linkId} not found`,
       };
     }
 
-    const guard = canVoteReply({
+    const guard = canVoteLink({
       userId: action.userId,
-      reply,
+      link,
     });
 
     if (!guard.allowed) {
       return {
         allowed: false,
         nextState: state,
-        logMessage: `Action denied for ${action.userId} on reply ${reply.id}: ${guard.reason}`,
+        logMessage: `Action denied for ${action.userId} on link ${link.id}: ${guard.reason}`,
       };
     }
 
     const clickedVote =
-      action.type === ACTION_TOGGLE_REPLY_UP ? VOTE_UP : VOTE_DOWN;
+      action.type === ACTION_TOGGLE_LINK_UP ? VOTE_UP : VOTE_DOWN;
 
-    const currentVote = reply.votesByUser[action.userId] || VOTE_NONE;
+    const currentVote = link.votesByUser[action.userId] || VOTE_NONE;
     const nextVote = transitionVote(currentVote, clickedVote);
 
-    const updatedReplies = state.replies.map((item) => {
-      if (item.id !== reply.id) return item;
+    const updatedLinks = state.links.map((item) => {
+      if (item.id !== link.id) return item;
       return updateEntityVote(item, action.userId, nextVote);
     });
 
@@ -391,9 +352,9 @@ export function applyAction(state, action) {
       allowed: true,
       nextState: {
         ...state,
-        replies: updatedReplies,
+        links: updatedLinks,
       },
-      logMessage: `User ${action.userId} changed vote on reply ${reply.id} from ${currentVote} to ${nextVote}`,
+      logMessage: `User ${action.userId} changed vote on link ${link.id} from ${currentVote} to ${nextVote}`,
     };
   }
 
